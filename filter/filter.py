@@ -1,7 +1,7 @@
 import cv2
 from matplotlib import pyplot as plt
 
-
+#Filter Gambar
 """
 gambar = cv2.imread("gambar.jpg")
 gmbtype = gambar.dtype
@@ -25,6 +25,8 @@ cv2.waitKey(0)
 cv2.destroyAllWindows()
 cv2.waitKey(1)
 """
+
+
 #Video Webcam
 
 kamera = cv2.VideoCapture(0)
