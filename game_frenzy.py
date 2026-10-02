@@ -10,23 +10,7 @@ Kontrol (tanpa keyboard saat bermain!):
   - Dorong tangan mendekat kamera -> DASH / boost (area kontur membesar cepat)
   - Makan ikan yang lebih kecil  -> skor + tumbuh (Small -> Medium -> Large)
   - Kena ikan yang lebih besar   -> GAME OVER
-
-Struktur file (OOP modular):
-  AssetManager   -> pemuat aset visual (PNG eksternal / fallback prosedural)
-  PelacakKamera  -> thread background: baca webcam, HSV mask, contour, dash
-  IkanPemain     -> ikan yang dikendalikan tangan (growth system)
-  IkanMusuh      -> AI ikan musuh yang melintas kiri/kanan
-  SistemPartikel -> gelembung dekoratif + ledakan saat ikan dimakan
-  Game           -> state machine + game loop utama
-
-Cara mengganti aset dengan PNG dari itch.io / Unity / Sketchfab:
-  1. Buat folder  assets/  di samping file ini.
-  2. Letakkan PNG transparan dengan nama persis seperti di ASSET_PATHS
-     (mis. assets/player_small.png, assets/enemy_shark.png, dst).
-  3. Jalankan ulang — AssetManager otomatis memakai PNG bila ada;
-     bila tidak ada, game memakai gambar fallback yang digambar kode.
-"""
-
+ """ 
 import cv2
 import numpy as np
 import pygame
@@ -80,24 +64,44 @@ KUNING    = (255, 220, 60)
 
 
 # ==========================================
-# 2. ASSET MANAGER  (titik integrasi aset eksternal)
+# 2. ASSET MANAGER 
 # ==========================================
-# ALUR PENGGANTIAN ASET (itch.io / Unity Asset Store / Sketchfab):
-#   -> Unduh sprite PNG transparan (mis. "Pixel Fishing Pack" dari itch.io,
-#      atau render frame model ikan 2D dari Sketchfab/Unity).
-#   -> Simpan ke folder  assets/  dengan nama file di bawah ini.
-#   -> Sprite otomatis diskalakan ke radius kolisi; pastikan PNG menghadap
-#      KE KANAN (game membalik otomatis saat ikan berenang ke kiri).
+
 ASSET_PATHS = {
+    # ---- ASET WAJIB (game jalan penuh dengan ini) ----
     "player_small":  "assets/player_small.png",
     "player_medium": "assets/player_medium.png",
     "player_large":  "assets/player_large.png",
     "enemy_small":   "assets/enemy_small.png",
     "enemy_medium":  "assets/enemy_medium.png",
     "enemy_large":   "assets/enemy_large.png",
-    "enemy_boss":    "assets/enemy_boss.png",     # ganti dengan hiu/raja ikan
-    "bg_underwater": "assets/bg_underwater.png",  # latar dasar laut
-    "bubble":        "assets/bubble_particle.png" # gelembung partikel
+    "enemy_boss":    "assets/enemy_boss.png",
+    "bg_underwater": "assets/bg_underwater.png",
+    "bubble":        "assets/bubble_particle.png",
+    # ---- ASET VARIASI / OPSIONAL (dipakai bila ada, di-skip bila tidak) ----
+    "enemy_small_2":   "assets/enemy_small_group.png",   
+    "enemy_medium_2":  "assets/enemy_medium_2.png",
+    "enemy_medium_3":  "assets/enemy_medium_3.png",
+    "enemy_large_2":   "assets/enemy_large_2.png",
+    "enemy_large_3":   "assets/enemy_large_3.png",
+    "enemy_boss_2":    "assets/enemy_boss_2.png",
+    "dash_effect":     "assets/dash_effect.png",         
+    "eat_effect":      "assets/eat_effect.png",          
+    "bubble_cluster":  "assets/bubble_cluster.png",      
+    "coral":           "assets/coral.png",               
+    "rock":            "assets/rock.png",                
+    "seaweed":         "assets/seaweed.png",             
+}
+
+# Pemetaan tingkat pertumbuhan pemain -> nama sprite (nama aset berbahasa Inggris)
+SPRITE_PEMAIN = {1: "player_small", 2: "player_medium", 3: "player_large"}
+
+# Variasi sprite musuh per tingkat (dipilih acak saat spawn; variasi opsional)
+SPRITE_MUSUH = {
+    1: ["enemy_small", "enemy_small_2"],
+    2: ["enemy_medium", "enemy_medium_2", "enemy_medium_3"],
+    3: ["enemy_large", "enemy_large_2", "enemy_large_3"],
+    4: ["enemy_boss", "enemy_boss_2"],
 }
 
 
@@ -105,25 +109,40 @@ class AssetManager:
     """Pemuat aset: pakai PNG eksternal bila ada, jika tidak gambar fallback."""
 
     def __init__(self):
-        self.sprites = {}
+        self.sumber = {}    # sprite asli (ukuran penuh) dari file
+        self.cache = {}     # cache hasil penskalaan {(nama, tinggi): surface}
+        self.eksternal = set()
         for nama, path in ASSET_PATHS.items():
             if os.path.exists(path):
-                img = pygame.image.load(path).convert_alpha()
-                self.sprites[nama] = ("file", img)
-            else:
-                self.sprites[nama] = ("fallback", None)  # digambar belakangan
+                try:
+                    self.sumber[nama] = pygame.image.load(path).convert_alpha()
+                    self.eksternal.add(nama)
+                except pygame.error:
+                    pass  # file rusak -> pakai fallback prosedural
+
+    def punya_eksternal(self, nama):
+        return nama in self.eksternal
 
     def ambil(self, nama, radius=None):
-        """Kembalikan surface sprite, diskalakan ke `radius` (kolisi bulat).
-        Bila aset PNG belum ada, pakai gambar fallback yang digambar kode."""
-        jenis, img = self.sprites[nama]
-        if jenis == "file":
-            if radius is not None:
-                ukuran = (radius * 2, radius * 2)
-                if img.get_size() != ukuran:
-                    img = pygame.transform.smoothscale(img, ukuran)
-                    self.sprites[nama] = ("file", img)
-            return img
+        """Kembalikan surface sprite dengan TINGGI = radius*2.
+
+        Penskalaan menjaga RASIO ASPEK asli sprite (lebar menyesuaikan),
+        jadi ikan tidak gepeng/lonjong. Hasil di-cache supaya tidak
+        melakukan smoothscale setiap frame (hemat CPU).
+        Bila PNG tidak ada, digambar fallback prosedural oleh kode.
+        """
+        tinggi = int(radius * 2) if radius else 0
+        if nama in self.sumber:
+            asli = self.sumber[nama]
+            if tinggi and asli.get_height() != tinggi:
+                key = (nama, tinggi)
+                if key not in self.cache:
+                    w, h = asli.get_size()
+                    lebar = max(1, int(w * tinggi / h))
+                    self.cache[key] = pygame.transform.smoothscale(
+                        asli, (lebar, tinggi))
+                return self.cache[key]
+            return asli
         # ---- fallback prosedural (digambar langsung dengan pygame.draw) ----
         r = radius or 20
         return self._gambar_fallback(nama, r)
@@ -161,9 +180,6 @@ class AssetManager:
                                 [(cx + r * 0.6, cy + r * 0.25), (cx + r * 0.45, cy + r * 0.5),
                                  (cx + r * 0.3, cy + r * 0.25)])
         return s
-
-    def punya_eksternal(self, nama):
-        return self.sprites[nama][0] == "file"
 
 
 # ==========================================
@@ -300,8 +316,8 @@ class IkanPemain:
     def __init__(self, assets: AssetManager):
         self.assets = assets
         self.x, self.y = WIDTH // 2, HEIGHT // 2
-        self.makan = 0                 # jumlah ikan yang sudah dimakan
-        self.level = 1                 # 1=KECIL, 2=SEDANG, 3=BESAR
+        self.makan = 0                 
+        self.level = 1                
         self.radius = GROWTH[0]["radius"]
         self.mati = False
         self.dash = False
@@ -309,7 +325,8 @@ class IkanPemain:
 
     @property
     def sprite(self):
-        return self.assets.ambil(f"player_{GROWTH[self.level-1]['nama'].lower()}", self.radius)
+        # SPRITE_PEMAIN memetakan level -> nama file aset (player_small, dst.)
+        return self.assets.ambil(SPRITE_PEMAIN[self.level], self.radius)
 
     def makan_ikan(self):
         """Naikkan hitungan makan; bila melewati ambang, tumbuh ke level berikut."""
@@ -356,6 +373,11 @@ class IkanMusuh:
         self.level = level
         self.radius = cfg["radius"]
         self.poin = cfg["poin"]
+        # pilih variasi sprite secara acak dari daftar yang tersedia
+        # (mis. enemy_medium, enemy_medium_2, enemy_medium_3)
+        variasi = SPRITE_MUSUH[level]
+        self.sprite_nama = random.choice(
+            [v for v in variasi if assets.punya_eksternal(v)] or variasi)
         # arah acak: 1 = berenang ke kanan (masuk dari kiri), -1 = sebaliknya
         self.arah = random.choice([1, -1])
         self.vx = random.uniform(*cfg["kecepatan"]) * self.arah
@@ -371,9 +393,7 @@ class IkanMusuh:
 
     @property
     def sprite(self):
-        nama = {1: "enemy_small", 2: "enemy_medium",
-                3: "enemy_large", 4: "enemy_boss"}[self.level]
-        return self.assets.ambil(nama, self.radius)
+        return self.assets.ambil(self.sprite_nama, self.radius)
 
     def di_luar_layar(self):
         return (self.arah == 1 and self.x > WIDTH + self.radius + 40) or \
@@ -389,7 +409,8 @@ class SistemPartikel:
 
     def __init__(self, assets: AssetManager):
         self.assets = assets
-        self.partikel = []
+        self.partikel = []   # gelembung biasa (lingkaran kecil)
+        self.efek = []       # efek sprite (eat_effect, bubble_cluster, ...)
 
     def _tambah(self, x, y, vx, vy, radius, umur):
         self.partikel.append({"x": x, "y": y, "vx": vx, "vy": vy,
@@ -416,6 +437,16 @@ class SistemPartikel:
             kec = random.uniform(0.8, 4)
             self._tambah(x, y, kec * np.cos(sudut), kec * np.sin(sudut) - 1,
                          random.randint(3, 10), random.randint(25, 55))
+        # efek sprite "makan" (membesar & memudar) bila asetnya tersedia
+        if self.assets.punya_eksternal("eat_effect"):
+            self.efek.append({"nama": "eat_effect", "x": x, "y": y,
+                              "tinggi": 40, "umur": 24, "umur0": 24})
+
+    def gelembung_besar(self, x, y):
+        """Gelembung cluster besar dekoratif (aset bubble_cluster)."""
+        if self.assets.punya_eksternal("bubble_cluster"):
+            self.efek.append({"nama": "bubble_cluster", "x": x, "y": y,
+                              "tinggi": 60, "umur": 90, "umur0": 90})
 
     def update(self):
         for p in self.partikel[:]:
@@ -425,6 +456,11 @@ class SistemPartikel:
             p["umur"] -= 1
             if p["umur"] <= 0 or p["y"] < -20:
                 self.partikel.remove(p)
+        for e in self.efek[:]:
+            e["umur"] -= 1
+            e["y"] -= 1.0 if e["nama"] == "bubble_cluster" else 0.4
+            if e["umur"] <= 0:
+                self.efek.remove(e)
 
     def gambar(self, surf):
         for p in self.partikel:
@@ -433,6 +469,15 @@ class SistemPartikel:
             sprite = self.assets.ambil("bubble", r)
             sprite.set_alpha(int(150 * alfa))
             surf.blit(sprite, (int(p["x"] - r), int(p["y"] - r)))
+        for e in self.efek:
+            alfa = e["umur"] / e["umur0"]
+            # efek membesar saat lahir lalu memudar
+            tumbuh = 1 + (1 - alfa) * 0.8
+            tinggi = int(e["tinggi"] * tumbuh)
+            sprite = self.assets.ambil(e["nama"], tinggi // 2)
+            sprite = sprite.copy()          # copy agar set_alpha tidak menular
+            sprite.set_alpha(int(220 * alfa))
+            surf.blit(sprite, sprite.get_rect(center=(int(e["x"]), int(e["y"]))))
 
 
 # ==========================================
@@ -463,22 +508,34 @@ class Game:
 
     # ---------------- latar prosedural ----------------
     def _buat_bg(self):
-        """Latar dasar laut: gradasi biru + siluet rumput laut.
-        (Otomatis tergantikan bila assets/bg_underwater.png tersedia.)"""
+        """Latar dasar laut.
+        Bila assets/bg_underwater.png tersedia -> dipakai sebagai dasar,
+        lalu dekorasi (coral/rock/seaweed) ditempel acak di dasarnya."""
         if self.assets.punya_eksternal("bg_underwater"):
-            img = self.assets.sprites["bg_underwater"][1]
-            return pygame.transform.smoothscale(img, (WIDTH, HEIGHT))
-        bg = pygame.Surface((WIDTH, HEIGHT))
-        for y in range(HEIGHT):
-            t = y / HEIGHT
-            warna = (int(10 + 25 * t), int(60 + 60 * t), int(110 + 70 * t))
-            pygame.draw.line(bg, warna, (0, y), (WIDTH, y))
-        for i in range(0, WIDTH, 90):  # rumput laut siluet
-            tinggi = random.randint(50, 130)
-            titik = [(i, HEIGHT)]
-            for j in range(1, 6):
-                titik.append((i + random.randint(-14, 14), HEIGHT - tinggi * j // 5))
-            pygame.draw.lines(bg, (20, 90, 70), False, titik, 6)
+            img = self.assets.sumber["bg_underwater"]
+            bg = pygame.transform.smoothscale(img, (WIDTH, HEIGHT))
+        else:
+            # fallback: gradasi biru + siluet rumput laut
+            bg = pygame.Surface((WIDTH, HEIGHT))
+            for y in range(HEIGHT):
+                t = y / HEIGHT
+                warna = (int(10 + 25 * t), int(60 + 60 * t), int(110 + 70 * t))
+                pygame.draw.line(bg, warna, (0, y), (WIDTH, y))
+            for i in range(0, WIDTH, 90):
+                tinggi = random.randint(50, 130)
+                titik = [(i, HEIGHT)]
+                for j in range(1, 6):
+                    titik.append((i + random.randint(-14, 14), HEIGHT - tinggi * j // 5))
+                pygame.draw.lines(bg, (20, 90, 70), False, titik, 6)
+        # ---- tempel dekorasi aset di dasar laut (bila tersedia) ----
+        for nama, jumlah in (("seaweed", 7), ("coral", 4), ("rock", 4)):
+            if not self.assets.punya_eksternal(nama):
+                continue
+            for _ in range(jumlah):
+                tinggi = random.randint(60, 150)
+                sp = self.assets.ambil(nama, tinggi // 2)
+                x = random.randint(-30, WIDTH - 40)
+                bg.blit(sp, (x, HEIGHT - sp.get_height() + random.randint(0, 14)))
         return bg
 
     def reset(self):
@@ -617,6 +674,9 @@ class Game:
                 if self.state == "MAIN":   # masih hidup?
                     if random.random() < 0.3:
                         self.partikel.ambient()
+                    if random.random() < 0.008:   # sesekali: gelembung cluster besar
+                        self.partikel.gelembung_besar(
+                            random.randint(60, WIDTH - 60), random.randint(80, HEIGHT - 80))
                     if random.random() < 0.5:
                         self.partikel.jejak(self.pemain.x - self.pemain.radius * self.pemain.arah,
                                             self.pemain.y, dash_aktif)
@@ -642,14 +702,25 @@ class Game:
                 sp = self.pemain.sprite
                 if self.pemain.arah == -1:
                     sp = pygame.transform.flip(sp, True, False)
-                # efek glow saat dash
+                # efek dash: pakai sprite dash_effect bila ada, kalau tidak glow
                 if self.pemain.dash:
-                    glow = pygame.Surface((sp.get_width() + 30, sp.get_height() + 30),
-                                          pygame.SRCALPHA)
-                    pygame.draw.circle(glow, (120, 220, 255),
-                                       glow.get_rect().center, self.pemain.radius + 12, 4)
-                    self.screen.blit(glow, glow.get_rect(
-                        center=(int(self.pemain.x), int(self.pemain.y))))
+                    px, py = int(self.pemain.x), int(self.pemain.y)
+                    if self.assets.punya_eksternal("dash_effect"):
+                        sp_efek = self.assets.ambil("dash_effect", self.pemain.radius)
+                        sp_efek = sp_efek.copy()
+                        sp_efek.set_alpha(150)
+                        # efek berada di belakang ikan (sisi lawan arah renang)
+                        pos = sp_efek.get_rect(center=(px - self.pemain.arah * self.pemain.radius,
+                                                        py))
+                        if self.pemain.arah == -1:
+                            sp_efek = pygame.transform.flip(sp_efek, True, False)
+                        self.screen.blit(sp_efek, pos)
+                    else:
+                        glow = pygame.Surface((sp.get_width() + 30, sp.get_height() + 30),
+                                              pygame.SRCALPHA)
+                        pygame.draw.circle(glow, (120, 220, 255),
+                                           glow.get_rect().center, self.pemain.radius + 12, 4)
+                        self.screen.blit(glow, glow.get_rect(center=(px, py)))
                 self.screen.blit(sp, sp.get_rect(center=(int(self.pemain.x),
                                                          int(self.pemain.y))))
 
