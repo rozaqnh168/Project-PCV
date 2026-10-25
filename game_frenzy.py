@@ -19,6 +19,8 @@ import threading
 import time
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ==========================================
 # 1. KONFIGURASI GLOBAL
 # ==========================================
@@ -59,7 +61,7 @@ MUSUH = {
     4: {"radius": 95, "kecepatan": (0.7, 1.1), "poin": 0,   "nama": "BOSS"},
 }
 
-SKOR_FILE = "skor_frenzy.txt"
+SKOR_FILE = os.path.join(BASE_DIR, "skor_frenzy.txt")
 KUNING    = (255, 220, 60)
 
 
@@ -78,6 +80,9 @@ ASSET_PATHS = {
     "enemy_boss":    "assets/enemy_boss.png",
     "bg_underwater": "assets/bg_underwater.png",
     "bubble":        "assets/bubble_particle.png",
+    "main_menu":     "assets/Mainmenu.png",
+    "game_over":     "assets/Gameover_ui.png",
+    "score":         "assets/Score.png",
     # ---- ASET VARIASI / OPSIONAL (dipakai bila ada, di-skip bila tidak) ----
     "enemy_small_2":   "assets/enemy_small_group.png",   
     "enemy_medium_2":  "assets/enemy_medium_2.png",
@@ -113,6 +118,7 @@ class AssetManager:
         self.cache = {}     # cache hasil penskalaan {(nama, tinggi): surface}
         self.eksternal = set()
         for nama, path in ASSET_PATHS.items():
+            path = os.path.join(BASE_DIR, path)
             if os.path.exists(path):
                 try:
                     self.sumber[nama] = pygame.image.load(path).convert_alpha()
@@ -494,6 +500,11 @@ class Game:
         self.font_kecil  = pygame.font.SysFont("dejavusans", 20)
 
         self.assets = AssetManager()
+        self.ui = {
+            nama: self.assets.sumber[nama]
+            for nama in ("game_over", "main_menu", "score")
+            if self.assets.punya_eksternal(nama)
+        }
         self.kamera = PelacakKamera()
         if not self.kamera.buka:
             raise RuntimeError("Kamera tidak bisa dibuka!")
@@ -505,6 +516,38 @@ class Game:
         self.panel_tampil = True
         self.kalib_sampel = []
         self.kalib_timer = 0.0
+        self.kalib_selesai = 0.0
+        self.kalib_gagal = False
+        self.kalib_pesan = ""
+        self.menu_rect = None
+        self.game_over_rect = None
+        self.pilihan_ukuran = [(800, 600), (960, 640), (1280, 720)]
+        self.opsi_rects = []
+        self.kembali_rect = None
+        self.hover_aktif = False
+        self.cursor_panah = pygame.cursors.Cursor(pygame.SYSTEM_CURSOR_ARROW)
+        self.cursor_tangan = pygame.cursors.Cursor(pygame.SYSTEM_CURSOR_HAND)
+
+    def ubah_ukuran(self, ukuran):
+        """Ubah jendela dan pertahankan posisi relatif seluruh objek permainan."""
+        global WIDTH, HEIGHT
+        lebar_lama, tinggi_lama = WIDTH, HEIGHT
+        WIDTH, HEIGHT = ukuran
+        self.screen = pygame.display.set_mode(ukuran)
+        sx, sy = WIDTH / lebar_lama, HEIGHT / tinggi_lama
+        for objek in [self.pemain, *self.musuh]:
+            objek.x *= sx
+            objek.y *= sy
+        for partikel in self.partikel.partikel:
+            partikel["x"] *= sx
+            partikel["y"] *= sy
+        self.pemain.x = max(self.pemain.radius,
+                            min(WIDTH - self.pemain.radius, self.pemain.x))
+        self.pemain.y = max(self.pemain.radius,
+                            min(HEIGHT - self.pemain.radius, self.pemain.y))
+        self.bg = self._buat_bg()
+        self.menu_rect = None
+        self.game_over_rect = None
 
     # ---------------- latar prosedural ----------------
     def _buat_bg(self):
@@ -614,7 +657,156 @@ class Game:
         self.screen.blit(img, rect)
         return rect
 
-    # ---------------- panel kamera ----------------
+    def _gambar_panel_ui(self, nama, ukuran, tengah):
+        """Gambar potongan UI dengan rasio aspek yang tetap."""
+        if nama not in self.ui:
+            return None
+        asli = self.ui[nama]
+        faktor = min(ukuran[0] / asli.get_width(),
+                     ukuran[1] / asli.get_height())
+        dimensi = (int(asli.get_width() * faktor),
+                   int(asli.get_height() * faktor))
+        gambar = pygame.transform.smoothscale(asli, dimensi)
+        rect = gambar.get_rect(center=tengah)
+        self.screen.blit(gambar, rect)
+        return rect
+
+    def _teks_ui(self, teks, posisi, ukuran, maksimum_lebar):
+        font = pygame.font.SysFont("dejavusansbold", ukuran, bold=True)
+        gambar = font.render(teks, True, (245, 250, 255))
+        if gambar.get_width() > maksimum_lebar:
+            faktor = maksimum_lebar / gambar.get_width()
+            gambar = pygame.transform.smoothscale(
+                gambar, (maksimum_lebar, max(1, int(gambar.get_height() * faktor))))
+        rect = gambar.get_rect(center=posisi)
+        bayangan = font.render(teks, True, (10, 35, 65))
+        if bayangan.get_size() != gambar.get_size():
+            bayangan = pygame.transform.smoothscale(bayangan, gambar.get_size())
+        self.screen.blit(bayangan, rect.move(2, 2))
+        self.screen.blit(gambar, rect)
+        return rect
+
+    @staticmethod
+    def _hitbox_panel(rect, area):
+        """Ubah area tombol ternormalisasi menjadi hitbox layar."""
+        x1, y1, x2, y2 = area
+        return pygame.Rect(rect.left + int(rect.width * x1),
+                           rect.top + int(rect.height * y1),
+                           int(rect.width * (x2 - x1)),
+                           int(rect.height * (y2 - y1)))
+
+    def _tombol_menu(self):
+        if not self.menu_rect:
+            return {}
+        areas = {
+            "play": (0.24, 0.385, 0.76, 0.53),
+            "options": (0.24, 0.55, 0.76, 0.69),
+            "quit": (0.24, 0.715, 0.76, 0.855),
+        }
+        return {nama: self._hitbox_panel(self.menu_rect, area)
+                for nama, area in areas.items()}
+
+    def _tombol_game_over(self):
+        if not self.game_over_rect:
+            return {}
+        # area diukur dari piksel tombol pada assets/Gameover_ui.png (761x724)
+        return {
+            "retry": self._hitbox_panel(
+                self.game_over_rect, (0.197, 0.745, 0.515, 0.874)),
+            "menu": self._hitbox_panel(
+                self.game_over_rect, (0.535, 0.745, 0.848, 0.876)),
+        }
+
+    def _gambar_highlight(self, rect, warna=(255, 235, 120), radius=24):
+        """Glow hover lembut yang mengikuti bentuk tombol (sudut membulat)."""
+        if not rect:
+            return
+        if rect.collidepoint(pygame.mouse.get_pos()):
+            self.hover_aktif = True
+            pad = 10
+            glow = pygame.Surface((rect.width + pad * 2, rect.height + pad * 2),
+                                  pygame.SRCALPHA)
+            # lapisan glow memudar ke luar
+            for i, alfa in enumerate((18, 30, 46)):
+                r = glow.get_rect().inflate(-i * 6, -i * 6)
+                pygame.draw.rect(glow, (*warna, alfa), r, 3,
+                                 border_radius=radius + pad - i * 3)
+            dalam = pygame.Rect(pad, pad, rect.width, rect.height)
+            pygame.draw.rect(glow, (255, 255, 255, 28), dalam,
+                             border_radius=radius)          # kilau tipis di tombol
+            pygame.draw.rect(glow, (*warna, 235), dalam.inflate(2, 2), 3,
+                             border_radius=radius)
+            self.screen.blit(glow, (rect.left - pad, rect.top - pad))
+
+    def _teks_angka(self, teks, tengah, tinggi):
+        """Angka bergaya label aset: isi gradasi putih->cyan, outline navy
+        tebal, dan bayangan lembut agar terlihat 'tercetak' di panel."""
+        font = pygame.font.SysFont("dejavusansbold", tinggi, bold=True)
+        isi = font.render(teks, True, (255, 255, 255))
+        w, h = isi.get_size()
+        # gradasi vertikal: putih di atas -> cyan muda di bawah
+        gradasi = pygame.Surface((w, h), pygame.SRCALPHA)
+        for y in range(h):
+            t = y / max(1, h - 1)
+            pygame.draw.line(gradasi, (int(255 - 70 * t), int(255 - 15 * t), 255),
+                             (0, y), (w, y))
+        isi.blit(gradasi, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        tebal = max(2, tinggi // 12)
+        hasil = pygame.Surface((w + tebal * 2 + 4, h + tebal * 2 + 4),
+                               pygame.SRCALPHA)
+        garis = font.render(teks, True, (12, 38, 78))
+        bayangan = font.render(teks, True, (0, 12, 35))
+        bayangan.set_alpha(110)
+        for dx in range(-tebal, tebal + 1):
+            for dy in range(-tebal, tebal + 1):
+                if dx * dx + dy * dy <= tebal * tebal:
+                    hasil.blit(bayangan, (tebal + dx + 2, tebal + dy + 3))
+        for dx in range(-tebal, tebal + 1):
+            for dy in range(-tebal, tebal + 1):
+                if dx * dx + dy * dy <= tebal * tebal:
+                    hasil.blit(garis, (tebal + dx, tebal + dy))
+        hasil.blit(isi, (tebal, tebal))
+        self.screen.blit(hasil, hasil.get_rect(center=tengah))
+
+    def _gambar_nilai_panel(self, panel, area, nilai, ukuran_font, bersih=False):
+        """Tulis nilai aktual pada panel; aset bersih tidak perlu kotak penutup."""
+        rect = self._hitbox_panel(panel, area)
+        if bersih:
+            self._teks_angka(f"{nilai:06d}", rect.center, ukuran_font)
+            return
+        pygame.draw.rect(self.screen, (8, 65, 108), rect, border_radius=8)
+        self._teks_ui(f"{nilai:06d}", rect.center, ukuran_font, rect.width - 8)
+
+    def _gambar_options(self):
+        kabut = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        kabut.fill((0, 10, 35, 220))
+        self.screen.blit(kabut, (0, 0))
+        self.teks_tengah("OPTIONS", 100, self.font_besar, KUNING)
+        self.teks_tengah("PILIH UKURAN WINDOW", 155, self.font_sedang)
+        self.opsi_rects = []
+        for i, (lebar, tinggi) in enumerate(self.pilihan_ukuran):
+            rect = pygame.Rect(0, 0, min(360, WIDTH - 80), 62)
+            rect.center = (WIDTH // 2, 225 + i * 85)
+            aktif = (lebar, tinggi) == (WIDTH, HEIGHT)
+            pygame.draw.rect(self.screen, (15, 115, 175) if aktif else (8, 65, 108),
+                             rect, border_radius=16)
+            pygame.draw.rect(self.screen, KUNING if aktif else (70, 195, 235),
+                             rect, 3, border_radius=16)
+            label = f"{lebar} x {tinggi}" + ("  (AKTIF)" if aktif else "")
+            self._teks_ui(label, rect.center, 27, rect.width - 28)
+            self._gambar_highlight(rect)
+            self.opsi_rects.append((rect, (lebar, tinggi)))
+        self.kembali_rect = pygame.Rect(0, 0, 180, 52)
+        self.kembali_rect.center = (WIDTH // 2, 490)
+        pygame.draw.rect(self.screen, (8, 65, 108), self.kembali_rect,
+                         border_radius=14)
+        pygame.draw.rect(self.screen, (70, 195, 235), self.kembali_rect,
+                         3, border_radius=14)
+        self._teks_ui("KEMBALI", self.kembali_rect.center, 25,
+                      self.kembali_rect.width - 20)
+        self._gambar_highlight(self.kembali_rect)
+
     def gambar_panel(self, frame, mask, pos):
         """Panel preview webcam + mask overlay di pojok kiri bawah."""
         if frame is None:
@@ -638,8 +830,85 @@ class Game:
             hy = py + int(pos[1] * h / CAM_H)
             pygame.draw.circle(self.screen, (255, 60, 60), (hx, hy), 5, 2)
 
-    # ==========================================
-    # GAME LOOP
+    def mulai_kalibrasi(self):
+        """Reset ronde dan tahan gameplay sampai warna tangan berhasil direkam."""
+        self.reset()
+        self.state = "KALIBRASI"
+        self.kalib_sampel.clear()
+        self.kalib_timer = 0.0
+        self.kalib_selesai = 0.0
+        self.kalib_gagal = False
+        self.kalib_aktif = False
+        self.kalib_pesan = "TEKAN K UNTUK MULAI KALIBRASI"
+
+    def update_kalibrasi(self, frame, dt):
+        """Kumpulkan sampel HSV selama 2 detik, lalu validasi hasilnya."""
+        global HSV_BAWAH, HSV_ATAS
+        if self.kalib_gagal or not self.kalib_aktif:
+            return
+        if self.kalib_selesai > 0:
+            self.kalib_selesai -= dt
+            if self.kalib_selesai <= 0:
+                self.state = "MAIN"
+            return
+        if frame is None:
+            self.kalib_pesan = "MENUNGGU KAMERA..."
+            return
+        self.kalib_timer += dt
+        self.kamera.sampel_kalibrasi(frame, self.kalib_sampel)
+        self.kalib_pesan = "TAHAN TANGAN TETAP DI DALAM KOTAK"
+        if self.kalib_timer < 2.0:
+            return
+        self.kalib_timer = 0
+        if not self.kalib_sampel:
+            self.kalib_gagal = True
+            self.kalib_pesan = "KALIBRASI GAGAL - TEKAN K UNTUK ULANG"
+            return
+        h = int(np.median([s[0] for s in self.kalib_sampel]))
+        s = int(np.median([s[1] for s in self.kalib_sampel]))
+        v = int(np.median([s[2] for s in self.kalib_sampel]))
+        if s < 60 or v < 60:
+            self.kalib_gagal = True
+            self.kalib_sampel.clear()
+            self.kalib_pesan = "WARNA TERLALU PUCAT - TEKAN K UNTUK ULANG"
+            return
+        HSV_BAWAH = np.array([max(h - 12, 0), 60, 60])
+        HSV_ATAS = np.array([min(h + 12, 179), 255, 255])
+        self.kalib_selesai = 0.8
+        self.kalib_pesan = "KALIBRASI BERHASIL - GAME DIMULAI!"
+
+    def _gambar_kalibrasi(self, frame):
+        kabut = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        kabut.fill((0, 10, 35, 225))
+        self.screen.blit(kabut, (0, 0))
+        self.teks_tengah("KALIBRASI WARNA", 65, self.font_besar, KUNING)
+        self.teks_tengah("Letakkan dan tahan tangan di dalam kotak", 112,
+                         self.font_sedang)
+        if frame is not None:
+            gambar = np.transpose(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1, 0, 2))
+            preview = pygame.surfarray.make_surface(gambar)
+            preview = pygame.transform.smoothscale(preview, (400, 300))
+            rect = preview.get_rect(center=(WIDTH // 2, 290))
+            self.screen.blit(preview, rect)
+            pygame.draw.rect(self.screen, (255, 255, 255), rect, 3,
+                             border_radius=4)
+            kotak = pygame.Rect(0, 0, 100, 100)
+            kotak.center = rect.center
+            pygame.draw.rect(self.screen, KUNING, kotak, 4)
+        else:
+            pygame.draw.rect(self.screen, (10, 55, 85),
+                             (WIDTH // 2 - 200, 140, 400, 300))
+        warna = (100, 255, 160) if self.kalib_selesai else (255, 255, 255)
+        self.teks_tengah(self.kalib_pesan, 475, self.font_kecil, warna)
+        if self.kalib_timer > 0:
+            pygame.draw.rect(self.screen, (15, 75, 110),
+                             (WIDTH // 2 - 200, 505, 400, 18), border_radius=9)
+            lebar = int(400 * min(self.kalib_timer / 2.0, 1.0))
+            if lebar:
+                pygame.draw.rect(self.screen, (70, 220, 255),
+                                 (WIDTH // 2 - 200, 505, lebar, 18), border_radius=9)
+        self.teks_tengah("ESC: kembali ke menu", 555, self.font_kecil)
+
     # ==========================================
     def jalankan(self):
         t_sebelum = time.time()
@@ -657,9 +926,6 @@ class Game:
 
             # ---- update game ----
             if self.state == "SIAP":
-                # mulai otomatis begitu tangan terdeteksi & digerakkan
-                if pos is not None:
-                    self.state = "MAIN"
                 self.pemain.update(pos, LERP_NORMAL, dt)
 
             elif self.state == "MAIN":
@@ -681,12 +947,16 @@ class Game:
                         self.partikel.jejak(self.pemain.x - self.pemain.radius * self.pemain.arah,
                                             self.pemain.y, dash_aktif)
 
+            elif self.state == "KALIBRASI":
+                self.update_kalibrasi(frame, dt)
+
             elif self.state == "OVER":
                 pass
 
             self.partikel.update()
 
             # ---- RENDER ----
+            self.hover_aktif = False
             self.screen.blit(self.bg, (0, 0))
             self.partikel.gambar(self.screen)
 
@@ -725,85 +995,141 @@ class Game:
                                                          int(self.pemain.y))))
 
             # ---- HUD ----
-            lvl_nama = GROWTH[self.pemain.level - 1]["nama"]
-            progres = GROWTH[min(self.pemain.level, 2)]["makan_total"]
-            awal = GROWTH[self.pemain.level - 1]["makan_total"]
-            butuh = max(0, progres - self.pemain.makan) if self.pemain.level < 3 else 0
-            hud = f"SKOR {self.skor}   |   UKURAN: {lvl_nama}"
-            if butuh:
-                hud += f" (makan {butuh} lagi)"
-            img = self.font_sedang.render(hud, True, (255, 255, 255))
-            self.screen.blit(self.font_sedang.render(hud, True, (20, 30, 40)), (12, 10))
-            self.screen.blit(img, (10, 8))
-            best = self.font_kecil.render(f"Terbaik: {self.terbaik}", True, (220, 220, 220))
-            self.screen.blit(best, (WIDTH - best.get_width() - 12, 10))
-            if dash_aktif:
-                self.teks_tengah("DASH!", 60, self.font_besar, (120, 220, 255))
-            if self.state == "MAIN" and pos is None:
-                self.teks_tengah("TANGAN TIDAK TERDETEKSI!", HEIGHT - 60,
-                                 self.font_sedang, (255, 90, 90))
+            if self.state == "MAIN":
+                lvl_nama = GROWTH[self.pemain.level - 1]["nama"]
+                progres = GROWTH[min(self.pemain.level, 2)]["makan_total"]
+                butuh = max(0, progres - self.pemain.makan) if self.pemain.level < 3 else 0
+                hud = f"UKURAN: {lvl_nama}"
+                if butuh:
+                    hud += f" (makan {butuh} lagi)"
+                self.screen.blit(self.font_sedang.render(hud, True, (20, 30, 40)), (14, 12))
+                self.screen.blit(self.font_sedang.render(hud, True, (255, 255, 255)), (12, 10))
+                score_rect = self._gambar_panel_ui("score", (270, 110), (WIDTH - 150, 68))
+                if score_rect:
+                    self._gambar_nilai_panel(
+                        score_rect, (0.38, 0.42, 0.85, 0.65), self.skor, 38)
+                else:
+                    self.teks_tengah(f"SKOR {self.skor}", 35, self.font_sedang)
+                if dash_aktif:
+                    self.teks_tengah("DASH!", 130, self.font_besar, (120, 220, 255))
+                if pos is None:
+                    self.teks_tengah("TANGAN TIDAK TERDETEKSI!", HEIGHT - 60,
+                                     self.font_sedang, (255, 90, 90))
 
-            # popup skor melayang
-            if self.ambil_pos:
-                x, y, txt = self.ambil_pos
-                img = self.font_sedang.render(txt, True, KUNING)
-                self.screen.blit(img, (int(x), int(y)))
-                self.ambil_pos = (x, y - 1.2, txt)
-                if y < 40:
-                    self.ambil_pos = None
+                if self.ambil_pos:
+                    x, y, txt = self.ambil_pos
+                    img = self.font_sedang.render(txt, True, KUNING)
+                    self.screen.blit(img, (int(x), int(y)))
+                    self.ambil_pos = (x, y - 1.2, txt)
+                    if y < 40:
+                        self.ambil_pos = None
 
-            # ---- UI per state ----
-            if self.state == "SIAP":
-                self.teks_tengah("FEEDING FRENZY: HAND HUNTER", 130,
-                                 self.font_besar, KUNING)
-                self.teks_tengah("Tunjukkan TANGAN BERWARNA ke kamera", 210)
-                self.teks_tengah("untuk memulai ...", 245)
-                self.teks_tengah("makan ikan lebih KECIL dari kamu, hindari yang lebih besar",
-                                 300, self.font_kecil, (210, 220, 230))
-                self.teks_tengah("DORONG TANGAN KE KAMERA = DASH!", 330,
-                                 self.font_kecil, (120, 220, 255))
-                self.teks_tengah("[C] kalibrasi warna   [M] panel kamera   [Q] keluar",
-                                 360, self.font_kecil, (180, 190, 200))
+            elif self.state == "SIAP":
+                kabut = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                kabut.fill((0, 0, 20, 100))
+                self.screen.blit(kabut, (0, 0))
+                self.menu_rect = self._gambar_panel_ui(
+                    "main_menu", (620, 590), (WIDTH // 2, HEIGHT // 2))
+                for rect in self._tombol_menu().values():
+                    self._gambar_highlight(rect)
+                if not self.menu_rect:
+                    self.teks_tengah("FEEDING FRENZY: HAND HUNTER", 180,
+                                     self.font_besar, KUNING)
+                    self.teks_tengah("ENTER: bermain | O: options | Q: keluar", 250)
                 if self.kalib_timer > 0:
                     self.teks_tengah(f"MEREKAM WARNA {max(0, 1 - self.kalib_timer):.1f}s",
-                                     400, self.font_sedang, (0, 220, 255))
+                                     HEIGHT - 36, self.font_sedang, (0, 220, 255))
+
+            elif self.state == "KALIBRASI":
+                self._gambar_kalibrasi(frame)
+
+            elif self.state == "OPTIONS":
+                self._gambar_options()
 
             elif self.state == "OVER":
                 kabut = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-                kabut.fill((0, 0, 20, 160))
+                kabut.fill((0, 0, 20, 125))
                 self.screen.blit(kabut, (0, 0))
-                self.teks_tengah("KAMU DIMAKAN!", 180, self.font_besar, (255, 80, 80))
-                self.teks_tengah(f"Skor akhir : {self.skor}", 260)
-                self.teks_tengah(f"Terbaik    : {self.terbaik}", 300)
-                self.teks_tengah(f"Ikan dimakan: {self.pemain.makan}", 340)
-                if self.skor >= self.terbaik and self.skor > 0:
-                    self.teks_tengah("*** REKOR BARU! ***", 390, self.font_sedang, KUNING)
-                self.teks_tengah("[R] main lagi      [Q] keluar", 440,
-                                 self.font_sedang, (0, 220, 255))
+                self.game_over_rect = self._gambar_panel_ui(
+                    "game_over", (620, 600), (WIDTH // 2, HEIGHT // 2))
+                if self.game_over_rect:
+                    # slot angka cekung pada aset: SCORE & BEST
+                    ukuran_angka = int(self.game_over_rect.height * 0.064)
+                    self._gambar_nilai_panel(
+                        self.game_over_rect, (0.360, 0.457, 0.670, 0.526),
+                        self.skor, ukuran_angka, bersih=True)
+                    self._gambar_nilai_panel(
+                        self.game_over_rect, (0.360, 0.648, 0.670, 0.717),
+                        self.terbaik, ukuran_angka, bersih=True)
+                    for rect in self._tombol_game_over().values():
+                        self._gambar_highlight(rect, radius=int(rect.height * 0.3))
+                else:
+                    self.teks_tengah(f"GAME OVER - Skor: {self.skor}", 230,
+                                     self.font_besar, (255, 80, 80))
+                    self.teks_tengah("[R] main lagi      [Q] keluar", 320)
 
-            if self.panel_tampil:
+            if self.panel_tampil and self.state != "KALIBRASI":
                 self.gambar_panel(frame, mask, pos)
 
+            pygame.mouse.set_cursor(
+                self.cursor_tangan if self.hover_aktif else self.cursor_panah)
             pygame.display.flip()
 
             # ---- EVENT ----
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     jalan = False
+                elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                    if self.state == "SIAP":
+                        tombol = self._tombol_menu()
+                        if tombol.get("play") and tombol["play"].collidepoint(ev.pos):
+                            self.mulai_kalibrasi()
+                        elif tombol.get("options") and tombol["options"].collidepoint(ev.pos):
+                            self.state = "OPTIONS"
+                        elif tombol.get("quit") and tombol["quit"].collidepoint(ev.pos):
+                            jalan = False
+                    elif self.state == "OPTIONS":
+                        if self.kembali_rect and self.kembali_rect.collidepoint(ev.pos):
+                            self.state = "SIAP"
+                        else:
+                            for rect, ukuran in self.opsi_rects:
+                                if rect.collidepoint(ev.pos):
+                                    if ukuran != (WIDTH, HEIGHT):
+                                        self.ubah_ukuran(ukuran)
+                                    break
+                    elif self.state == "OVER":
+                        tombol = self._tombol_game_over()
+                        if tombol.get("retry") and tombol["retry"].collidepoint(ev.pos):
+                            self.mulai_kalibrasi()
+                        elif tombol.get("menu") and tombol["menu"].collidepoint(ev.pos):
+                            self.reset()
+                            self.state = "SIAP"
                 elif ev.type == pygame.KEYDOWN:
-                    if ev.key in (pygame.K_q, pygame.K_ESCAPE):
+                    if ev.key == pygame.K_ESCAPE and self.state in ("OPTIONS", "KALIBRASI"):
+                        self.state = "SIAP"
+                        self.kalib_timer = 0
+                        self.kalib_selesai = 0
+                    elif ev.key in (pygame.K_q, pygame.K_ESCAPE):
                         jalan = False
+                    elif ev.key in (pygame.K_RETURN, pygame.K_SPACE) and self.state == "SIAP":
+                        self.mulai_kalibrasi()
+                    elif ev.key == pygame.K_o and self.state == "SIAP":
+                        self.state = "OPTIONS"
                     elif ev.key == pygame.K_m:
                         self.panel_tampil = not self.panel_tampil
                     elif ev.key == pygame.K_r and self.state in ("MAIN", "OVER"):
                         self.reset()
                         self.state = "SIAP"
-                    elif ev.key == pygame.K_c and self.state != "MAIN":
+                    elif ev.key == pygame.K_k and self.state == "KALIBRASI" \
+                            and not self.kalib_selesai:
+                        self.kalib_aktif = True
                         self.kalib_timer = 0.0001
                         self.kalib_sampel.clear()
+                        self.kalib_gagal = False
+                        self.kalib_pesan = "TAHAN TANGAN TETAP DI DALAM KOTAK"
 
-            # ---- proses kalibrasi [C] ----
-            if self.kalib_timer > 0:
+            # ---- proses kalibrasi manual [C] pada main menu ----
+            if self.kalib_timer > 0 and self.state == "SIAP":
                 self.kalib_timer += dt
                 self.kamera.sampel_kalibrasi(frame, self.kalib_sampel)
                 if self.kalib_timer >= 1.0:
