@@ -51,9 +51,8 @@ GROWTH = [
     {"lvl": 3, "nama": "BESAR",   "radius": 52, "makan_total": 20},
 ]
 
-# --- Tingkat ikan musuh (1 kecil .. 4 BOSS/Leviathan) ---
+# --- Tingkat ikan musuh (1 kecil .. 3 besar, 4 BOSS) ---
 # Ikan pemain hanya bisa memakan musuh yang tingkatnya <= tingkat dirinya.
-# Boss (4) SELALU mematikan, sebesar apa pun pemainnya.
 MUSUH = {
     1: {"radius": 16, "kecepatan": (2.0, 3.6), "poin": 10,  "nama": "kecil"},
     2: {"radius": 30, "kecepatan": (1.5, 2.6), "poin": 25,  "nama": "sedang"},
@@ -77,26 +76,30 @@ ASSET_PATHS = {
     "enemy_small":   "assets/enemy_small.png",
     "enemy_medium":  "assets/enemy_medium.png",
     "enemy_large":   "assets/enemy_large.png",
-    "enemy_boss":    "assets/enemy_boss.png",
     "bg_underwater": "assets/bg_underwater.png",
     "bubble":        "assets/bubble_particle.png",
     "main_menu":     "assets/Mainmenu.png",
     "game_over":     "assets/Gameover_ui.png",
     "score":         "assets/Score.png",
+}
+for aksi in ("swim", "eat"):
+    for nomor in range(1, 7):
+        nama = f"enemy_boss_{aksi}_{nomor:02d}"
+        ASSET_PATHS[nama] = f"assets/Boss/{aksi}/{nama}.png"
+ASSET_PATHS.update({
     # ---- ASET VARIASI / OPSIONAL (dipakai bila ada, di-skip bila tidak) ----
     "enemy_small_2":   "assets/enemy_small_group.png",   
     "enemy_medium_2":  "assets/enemy_medium_2.png",
     "enemy_medium_3":  "assets/enemy_medium_3.png",
     "enemy_large_2":   "assets/enemy_large_2.png",
     "enemy_large_3":   "assets/enemy_large_3.png",
-    "enemy_boss_2":    "assets/enemy_boss_2.png",
     "dash_effect":     "assets/dash_effect.png",         
     "eat_effect":      "assets/eat_effect.png",          
     "bubble_cluster":  "assets/bubble_cluster.png",      
     "coral":           "assets/coral.png",               
     "rock":            "assets/rock.png",                
     "seaweed":         "assets/seaweed.png",             
-}
+})
 
 # Pemetaan tingkat pertumbuhan pemain -> nama sprite (nama aset berbahasa Inggris)
 SPRITE_PEMAIN = {1: "player_small", 2: "player_medium", 3: "player_large"}
@@ -106,8 +109,12 @@ SPRITE_MUSUH = {
     1: ["enemy_small", "enemy_small_2"],
     2: ["enemy_medium", "enemy_medium_2", "enemy_medium_3"],
     3: ["enemy_large", "enemy_large_2", "enemy_large_3"],
-    4: ["enemy_boss", "enemy_boss_2"],
 }
+ANIMASI_BOSS = {
+    aksi: [f"enemy_boss_{aksi}_{nomor:02d}" for nomor in range(1, 7)]
+    for aksi in ("swim", "eat")
+}
+BATAS_MUSUH = {3: 3, 4: 2}
 
 
 class AssetManager:
@@ -166,9 +173,10 @@ class AssetManager:
             "player_small": (255, 170, 40), "player_medium": (255, 130, 30),
             "player_large": (255, 90, 20),  "enemy_small": (120, 200, 240),
             "enemy_medium": (80, 160, 230), "enemy_large": (70, 110, 220),
-            "enemy_boss": (60, 70, 160),
         }
         warna = palet.get(nama, (200, 200, 200))
+        if nama.startswith("enemy_boss"):
+            warna = (60, 70, 160)
         gelap = tuple(int(c * 0.65) for c in warna)
         # badan
         pygame.draw.ellipse(s, warna, (cx - r, cy - r * 0.7, r * 1.6, r * 1.4))
@@ -181,10 +189,6 @@ class AssetManager:
         # mata
         pygame.draw.circle(s, (255, 255, 255), (int(cx + r * 0.45), int(cy - r * 0.2)), max(3, r // 5))
         pygame.draw.circle(s, (20, 20, 20), (int(cx + r * 0.5), int(cy - r * 0.2)), max(2, r // 9))
-        if nama == "enemy_boss":  # boss: tambahkan gigi
-            pygame.draw.polygon(s, (255, 255, 255),
-                                [(cx + r * 0.6, cy + r * 0.25), (cx + r * 0.45, cy + r * 0.5),
-                                 (cx + r * 0.3, cy + r * 0.25)])
         return s
 
 
@@ -370,8 +374,7 @@ class IkanPemain:
 
 
 class IkanMusuh:
-    """Ikan musuh yang melintas dari kiri->kanan atau kanan->kiri.
-    Tingkat 1-3 biasa; tingkat 4 = BOSS (selalu mematikan)."""
+    """Ikan musuh level 1-3; Boss level 4 memiliki animasi swim dan eat."""
 
     def __init__(self, assets: AssetManager, level, y=None):
         self.assets = assets
@@ -379,9 +382,12 @@ class IkanMusuh:
         self.level = level
         self.radius = cfg["radius"]
         self.poin = cfg["poin"]
+        self.sedang_makan = False
+        self.waktu_animasi = 0.0
+        self.animasi_selesai = False
         # pilih variasi sprite secara acak dari daftar yang tersedia
         # (mis. enemy_medium, enemy_medium_2, enemy_medium_3)
-        variasi = SPRITE_MUSUH[level]
+        variasi = SPRITE_MUSUH.get(level, [ANIMASI_BOSS["swim"][0]])
         self.sprite_nama = random.choice(
             [v for v in variasi if assets.punya_eksternal(v)] or variasi)
         # arah acak: 1 = berenang ke kanan (masuk dari kiri), -1 = sebaliknya
@@ -392,13 +398,32 @@ class IkanMusuh:
                                                         HEIGHT - self.radius - 20)
         self.wiggle = random.uniform(0, 6.28)   # gerak naik-turun sinus kecil
 
+    def mulai_makan(self):
+        """Putar animasi eat Boss sekali sambil menghentikan geraknya."""
+        self.sedang_makan = True
+        self.waktu_animasi = 0.0
+        self.animasi_selesai = False
+
     def update(self, dt):
+        self.waktu_animasi += dt
+        if self.sedang_makan:
+            self.animasi_selesai = self.waktu_animasi >= len(ANIMASI_BOSS["eat"]) / 10
+            return
         self.x += self.vx * dt * 60
         self.wiggle += 0.05
         self.y += np.sin(self.wiggle) * 0.4     # ikan 'bernapas' naik turun
 
     @property
     def sprite(self):
+        if self.level == 4:
+            aksi = "eat" if self.sedang_makan else "swim"
+            frames = ANIMASI_BOSS[aksi]
+            indeks = int(self.waktu_animasi * 10)
+            if self.sedang_makan:
+                indeks = min(indeks, len(frames) - 1)
+            else:
+                indeks %= len(frames)
+            return self.assets.ambil(frames[indeks], self.radius)
         return self.assets.ambil(self.sprite_nama, self.radius)
 
     def di_luar_layar(self):
@@ -611,11 +636,20 @@ class Game:
         bisa dimakan DAN ancaman — rasa Feeding Frenzy yang seimbang."""
         lvl = self.pemain.level
         if lvl == 1:
-            return random.choices([1, 2], weights=[0.65, 0.35])[0]
-        if lvl == 2:
-            return random.choices([1, 2, 3], weights=[0.50, 0.35, 0.15])[0]
-        return random.choices([1, 2, 3, 4],
-                              weights=[0.32, 0.34, 0.20, 0.14])[0]
+            levels, weights = [1, 2], [0.65, 0.35]
+        elif lvl == 2:
+            levels, weights = [1, 2, 3], [0.50, 0.35, 0.15]
+        else:
+            levels, weights = [1, 2, 3, 4], [0.32, 0.34, 0.20, 0.14]
+
+        # Batasi ikan besar dan Boss tanpa menghentikan spawn jenis lain.
+        for level, batas in BATAS_MUSUH.items():
+            if level in levels and sum(m.level == level for m in self.musuh) >= batas:
+                index = levels.index(level)
+                levels.pop(index)
+                weights.pop(index)
+
+        return random.choices(levels, weights=weights)[0]
 
     def update_spawner(self, dt):
         self.spawn_timer += dt
@@ -645,7 +679,11 @@ class Game:
                     self.partikel.ledakan(p.x, p.y, n=50)
                     self.terbaik = max(self.terbaik, self.skor)
                     self.simpan_terbaik()
-                    self.state = "OVER"
+                    if m.level == 4:
+                        m.mulai_makan()
+                        self.state = "DIMAKAN"
+                    else:
+                        self.state = "OVER"
                     return
 
     # ---------------- helper teks ----------------
@@ -947,6 +985,14 @@ class Game:
                         self.partikel.jejak(self.pemain.x - self.pemain.radius * self.pemain.arah,
                                             self.pemain.y, dash_aktif)
 
+            elif self.state == "DIMAKAN":
+                for m in self.musuh:
+                    if m.sedang_makan:
+                        m.update(dt)
+                        if m.animasi_selesai:
+                            self.state = "OVER"
+                            break
+
             elif self.state == "KALIBRASI":
                 self.update_kalibrasi(frame, dt)
 
@@ -1117,7 +1163,7 @@ class Game:
                         self.state = "OPTIONS"
                     elif ev.key == pygame.K_m:
                         self.panel_tampil = not self.panel_tampil
-                    elif ev.key == pygame.K_r and self.state in ("MAIN", "OVER"):
+                    elif ev.key == pygame.K_r and self.state in ("MAIN", "DIMAKAN", "OVER"):
                         self.reset()
                         self.state = "SIAP"
                     elif ev.key == pygame.K_k and self.state == "KALIBRASI" \

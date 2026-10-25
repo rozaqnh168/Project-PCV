@@ -12,7 +12,7 @@ Project ini dibuat untuk mata kuliah **Pengolahan Citra dan Video (PCV)**.
 - **Kontrol tangan tanpa keyboard**: ikan pemain mengikuti posisi tangan (atau benda berwarna) yang terlihat di webcam.
 - **Dash/boost**: dorong tangan mendekat ke kamera dan ikan akan melesat.
 - **Sistem pertumbuhan 3 tingkat**: Kecil → Sedang → Besar.
-- **4 tingkat musuh**, termasuk **Boss** yang selalu mematikan.
+- **4 tingkat musuh**, termasuk **Boss** dengan animasi berenang dan makan.
 - **Kalibrasi warna otomatis** sebelum bermain, sehingga warna apa pun bisa dipakai sebagai penanda.
 - **Skor terbaik tersimpan** di `skor_frenzy.txt`.
 - **Partikel gelembung**, efek makan, dan efek dash.
@@ -130,7 +130,8 @@ Main Menu ──PLAY──► Kalibrasi (tekan K, tahan tangan di kotak 2 detik)
 
 - Makan ikan yang **sama besar atau lebih kecil** untuk menambah skor dan tumbuh.
 - Menyentuh ikan yang **lebih besar** membuat permainan berakhir (**Game Over**).
-- **Boss** selalu mematikan, sebesar apa pun ikan pemain.
+- Maksimal **tiga ikan besar** dan **dua Boss** aktif bersamaan dalam satu window; ikan kecil dan sedang tetap muncul seperti biasa.
+- **Boss** selalu mematikan dan tidak dapat dimakan. Animasi makan Boss ditampilkan sebelum Game Over.
 - Semakin tinggi skor, musuh muncul semakin cepat (jeda spawn minimal 0,8 detik).
 
 ### Pertumbuhan pemain
@@ -183,7 +184,8 @@ Project-PCV/
 │   ├── Score.png         # panel skor di HUD
 │   ├── bg_underwater.png # latar bawah laut
 │   ├── player_*.png      # sprite pemain (small/medium/large)
-│   ├── enemy_*.png       # sprite musuh + variasinya + boss
+│   ├── enemy_*.png       # sprite musuh dan variasinya
+│   ├── Boss/swim/, Boss/eat/  # animasi Boss, masing-masing 6 frame
 │   ├── bubble_*.png      # partikel gelembung
 │   ├── dash_effect.png, eat_effect.png
 │   └── coral.png, rock.png, seaweed.png  # dekorasi dasar laut
