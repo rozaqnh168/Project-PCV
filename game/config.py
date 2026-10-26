@@ -13,16 +13,16 @@ MIN_AREA  = 500
 LERP_NORMAL = 0.09
 
 GROWTH = [
-    {"lvl": 1, "nama": "KECIL",  "radius": 26, "poin_total": 0},
-    {"lvl": 2, "nama": "SEDANG", "radius": 42, "poin_total": 70},
-    {"lvl": 3, "nama": "BESAR",  "radius": 64, "poin_total": 180},
+    {"lvl": 1, "nama": "KECIL",  "radius": 23, "poin_total": 0},
+    {"lvl": 2, "nama": "SEDANG", "radius": 37, "poin_total": 80},
+    {"lvl": 3, "nama": "BESAR",  "radius": 54, "poin_total": 400},
 ]
 
 MUSUH = {
-    1: {"radius": 16, "kecepatan": (2.0, 3.6), "poin": 10,  "nama": "kecil"},
-    2: {"radius": 30, "kecepatan": (1.5, 2.6), "poin": 25,  "nama": "sedang"},
-    3: {"radius": 48, "kecepatan": (1.0, 1.8), "poin": 60,  "nama": "besar"},
-    4: {"radius": 75, "kecepatan": (0.7, 1.1), "poin": 0,   "nama": "BOSS"},
+    1: {"radius": 13, "kecepatan": (2.0, 3.6), "poin": 10,  "nama": "kecil"},
+    2: {"radius": 27, "kecepatan": (1.5, 2.6), "poin": 25,  "nama": "sedang"},
+    3: {"radius": 44, "kecepatan": (1.0, 1.8), "poin": 60,  "nama": "besar"},
+    4: {"radius": 80, "kecepatan": (0.7, 1.1), "poin": 0,   "nama": "BOSS"},
 }
 
 SKOR_FILE = os.path.join(BASE_DIR, "skor_frenzy.txt")
@@ -50,11 +50,11 @@ for aksi in ("swim", "eat"):
         nama = f"enemy_boss_{aksi}_{nomor:02d}"
         ASSET_PATHS[nama] = f"assets/Boss/{aksi}/{nama}.png"
 ASSET_PATHS.update({
-    "enemy_small_2":   "assets/enemy_small_group.png",
+    "enemy_small_2":   "assets/enemy_small_sarden.png",
     "enemy_medium_2":  "assets/enemy_medium_2.png",
     "enemy_medium_3":  "assets/enemy_medium_3.png",
     "enemy_large_2":   "assets/enemy_large_2.png",
-    "enemy_large_3":   "assets/enemy_large_3.png",
+    "enemy_large_3":   "assets/largefish.png",
     "eat_effect":      "assets/eat_effect.png",
     "bubble_cluster":  "assets/bubble_cluster.png",
     "coral":           "assets/coral.png",

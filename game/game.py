@@ -352,6 +352,10 @@ class Game:
         self.kalib_aktif = False
         self.kalib_pesan = "TEKAN K UNTUK MULAI KALIBRASI"
 
+    def ulang_permainan(self):
+        self.reset()
+        self.state = "MAIN"
+
     def update_kalibrasi(self, frame, dt):
         if self.kalib_gagal or not self.kalib_aktif:
             return
@@ -476,7 +480,7 @@ class Game:
             elif self.state == "OVER":
                 tombol = self._tombol_game_over()
                 if tombol.get("retry") and tombol["retry"].collidepoint(event.pos):
-                    self.mulai_kalibrasi()
+                    self.ulang_permainan()
                 elif tombol.get("menu") and tombol["menu"].collidepoint(event.pos):
                     self.reset()
                     self.state = "SIAP"
@@ -493,7 +497,9 @@ class Game:
                 self.state = "OPTIONS"
             elif event.key == pygame.K_m:
                 self.panel_tampil = not self.panel_tampil
-            elif event.key == pygame.K_r and self.state in ("MAIN", "DIMAKAN", "OVER"):
+            elif event.key == pygame.K_r and self.state == "OVER":
+                self.ulang_permainan()
+            elif event.key == pygame.K_r and self.state in ("MAIN", "DIMAKAN"):
                 self.reset()
                 self.state = "SIAP"
             elif (event.key == pygame.K_k and self.state == "KALIBRASI"

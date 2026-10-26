@@ -13,12 +13,12 @@ Kode game dipisahkan ke beberapa modul Python berdasarkan tanggung jawabnya. Fil
 ## Fitur
 
 - **Kontrol tangan tanpa keyboard**: ikan pemain mengikuti posisi tangan (atau benda berwarna) yang terlihat di webcam.
-- **Sistem pertumbuhan 3 tingkat berbasis poin**: Kecil → Sedang (70 poin) → Besar (180 poin).
+- **Sistem pertumbuhan 3 tingkat berbasis poin**: Kecil → Sedang (80 poin) → Besar (400 poin).
 - **Animasi pemain 8 frame** untuk berenang serta membuka dan menutup mulut saat makan.
 - **4 tingkat musuh**, termasuk **Boss** dengan animasi berenang dan makan.
 - **Musuh muncul 1,5× lebih sering**, sehingga lebih banyak ikan berada di window.
-- **Kalibrasi warna otomatis** sebelum bermain, sehingga warna apa pun bisa dipakai sebagai penanda.
-- **Skor terbaik tersimpan** di `skor_frenzy.txt`.
+- **Kalibrasi warna sebelum bermain**: pilih warna penanda yang jelas dan tahan di kotak kamera selama 2 detik.
+- **Skor terbaik tersimpan** di `skor_frenzy.txt` saat pemain mengalami Game Over.
 - **Partikel gelembung** dan efek makan.
 - **Menu Options** untuk mengganti ukuran jendela (800×600, 960×640, 1280×720).
 - **Preview webcam + mask** di pojok kiri bawah untuk membantu debugging deteksi.
@@ -50,8 +50,11 @@ Petakan ke layar game + LERP → gerak ikan yang halus seperti di air
   `x_game = (x_tangan / CAM_W) * WIDTH`.
 - **Linear interpolation (LERP)**: ikan tidak langsung menempel ke posisi tangan, tetapi bergerak sebagian
   tiap frame (`x += (target - x) * faktor`) sehingga terasa seperti bergerak di dalam air.
-- **Kalibrasi**: game mengambil median nilai HSV dari kotak di tengah frame selama 2 detik, lalu membuat
-  rentang warna `Hue ± 12`. Kalibrasi ditolak bila warna terlalu pucat (Saturation atau Value < 60).
+- **Kalibrasi**: dari menu utama, tekan **PLAY**, lalu tekan `K`. Tahan penanda di kotak tengah
+  selama 2 detik. Program mengambil median HSV sampel dan membuat rentang `Hue ± 12`, dengan
+  batas Saturation dan Value minimal 60. Kalibrasi ditolak bila penanda terlalu pucat.
+- Kalibrasi dilakukan saat memulai permainan dari menu. Tombol **RETRY** setelah Game Over
+  langsung memulai ronde baru dan memakai rentang warna hasil kalibrasi sebelumnya.
 
 ---
 
@@ -109,8 +112,8 @@ python game_frenzy.py
 | Klik **OPTIONS** / `O` | Buka menu ukuran jendela |
 | `K` | Mulai kalibrasi warna (di layar kalibrasi) |
 | `M` | Tampilkan/sembunyikan preview webcam |
-| `R` | Kembali ke menu utama (saat bermain / game over) |
-| Klik **RETRY** | Main lagi (kalibrasi ulang) |
+| `R` | Saat bermain: kembali ke menu utama; saat Game Over: langsung main lagi tanpa kalibrasi |
+| Klik **RETRY** | Langsung main lagi tanpa kalibrasi |
 | Klik **MENU** | Kembali ke menu utama |
 | `Esc` | Kembali ke menu dari Options/Kalibrasi; keluar dari game di layar lain |
 | Klik **QUIT** / `Q` | Keluar dari game |
@@ -119,9 +122,8 @@ python game_frenzy.py
 
 ```
 Main Menu ──PLAY──► Kalibrasi (tekan K, tahan tangan di kotak 2 detik) ──► Bermain ──► Game Over
-    ▲                                                                                      │
-    └──────────────────────────────── MENU ◄──────────────────────────────────────────────┤
-                                       RETRY ──► Kalibrasi ◄──────────────────────────────┘
+Game Over ──RETRY (langsung, tanpa kalibrasi)────────────────────────────────► Bermain
+Game Over ──MENU─────────────────────────────────────────────────────────────► Main Menu
 ```
 
 ---
@@ -141,10 +143,10 @@ Pertumbuhan ditentukan oleh **total poin**, bukan jumlah ikan yang dimakan. Indi
 | Tingkat | Ukuran | Syarat (total poin) |
 |---|---|---|
 | 1 | Kecil | 0 |
-| 2 | Sedang | 70 |
-| 3 | Besar | 180 |
+| 2 | Sedang | 80 |
+| 3 | Besar | 400 |
 
-Pemain selalu lebih besar daripada musuh pada level yang sama: radius pemain Kecil/Sedang/Besar adalah **26/42/64**, sedangkan radius musuh setara adalah **16/30/48**.
+Ukuran sprite pemain dan musuh ditentukan oleh radius di `game/config.py`. Radius pemain Kecil/Sedang/Besar adalah **23/37/54**; radius musuh setara adalah **13/27/44**. Radius Boss adalah **80**. Radius juga dipakai pada perhitungan tabrakan.
 
 ### Musuh
 
@@ -155,7 +157,10 @@ Pemain selalu lebih besar daripada musuh pada level yang sama: radius pemain Kec
 | 3 | Besar | 60 | Besar |
 | 4 | **Boss** | – | Tidak pernah (selalu mematikan) |
 
-Boss baru muncul setelah pemain mencapai ukuran **Besar**.
+Boss baru dapat muncul setelah pemain mencapai ukuran **Besar**. Dalam satu ronde, maksimal ada
+tiga ikan Besar dan dua Boss aktif sekaligus. Ikan yang bisa dimakan menghilang dan menambah
+poin; kontak dengan ikan lebih besar mengakhiri ronde. Jika penyebabnya Boss, animasi Boss makan
+ditampilkan sebelum layar Game Over.
 
 ---
 
@@ -170,7 +175,9 @@ Pengaturan utama ada di [`game/config.py`](game/config.py):
 | `HSV_BAWAH`, `HSV_ATAS` | `[40,70,70]`–`[85,255,255]` | Rentang warna default (hijau terang) |
 | `MIN_AREA` | `500` | Luas kontur minimum agar dianggap tangan |
 | `LERP_NORMAL` | `0.09` | Kehalusan gerak ikan mengikuti tangan |
-| `GROWTH`, `MUSUH` | – | Ambang poin pertumbuhan pemain dan data musuh |
+| `GROWTH` | poin total `0 / 80 / 400`; radius `23 / 37 / 54` | Ambang pertumbuhan dan ukuran pemain |
+| `MUSUH` | radius `13 / 27 / 44 / 80` | Radius, kecepatan, dan poin musuh level 1 sampai Boss |
+| `BATAS_MUSUH` | `{3: 3, 4: 2}` | Batas ikan Besar dan Boss yang aktif |
 
 ---
 
@@ -224,7 +231,7 @@ game tetap berjalan tanpa aset tersebut.
 | Masalah | Solusi |
 |---|---|
 | `ERROR: Kamera tidak bisa dibuka!` | Pastikan webcam terpasang dan tidak sedang dipakai aplikasi lain. |
-| Muncul tulisan **"TANGAN TIDAK TERDETEKSI!"** | Pakai benda berwarna lebih mencolok, perbaiki pencahayaan, lalu kalibrasi ulang. |
+| Muncul tulisan **"TANGAN TIDAK TERDETEKSI!"** | Pakai penanda berwarna lebih mencolok dan perbaiki pencahayaan. Untuk mengkalibrasi ulang, kembali ke menu, mulai permainan baru, lalu tekan `K` di layar kalibrasi. |
 | Kalibrasi gagal: **warna terlalu pucat** | Warna penanda kurang jenuh. Gunakan warna cerah seperti hijau, biru, atau merah terang. |
 | Ikan bergerak sendiri / melompat-lompat | Ada benda lain dengan warna serupa di latar. Jauhkan benda tersebut atau ganti warna penanda. |
 
