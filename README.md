@@ -13,12 +13,13 @@ Kode game dipisahkan ke beberapa modul Python berdasarkan tanggung jawabnya. Fil
 ## Fitur
 
 - **Kontrol tangan tanpa keyboard**: ikan pemain mengikuti posisi tangan (atau benda berwarna) yang terlihat di webcam.
-- **Dash/boost**: dorong tangan mendekat ke kamera dan ikan akan melesat.
-- **Sistem pertumbuhan 3 tingkat**: Kecil → Sedang → Besar.
+- **Sistem pertumbuhan 3 tingkat berbasis poin**: Kecil → Sedang (70 poin) → Besar (180 poin).
+- **Animasi pemain 8 frame** untuk berenang serta membuka dan menutup mulut saat makan.
 - **4 tingkat musuh**, termasuk **Boss** dengan animasi berenang dan makan.
+- **Musuh muncul 1,5× lebih sering**, sehingga lebih banyak ikan berada di window.
 - **Kalibrasi warna otomatis** sebelum bermain, sehingga warna apa pun bisa dipakai sebagai penanda.
 - **Skor terbaik tersimpan** di `skor_frenzy.txt`.
-- **Partikel gelembung**, efek makan, dan efek dash.
+- **Partikel gelembung** dan efek makan.
 - **Menu Options** untuk mengganti ukuran jendela (800×600, 960×640, 1280×720).
 - **Preview webcam + mask** di pojok kiri bawah untuk membantu debugging deteksi.
 - **Fallback prosedural**: bila file aset tidak ada, sprite digambar langsung oleh kode.
@@ -49,9 +50,6 @@ Petakan ke layar game + LERP → gerak ikan yang halus seperti di air
   `x_game = (x_tangan / CAM_W) * WIDTH`.
 - **Linear interpolation (LERP)**: ikan tidak langsung menempel ke posisi tangan, tetapi bergerak sebagian
   tiap frame (`x += (target - x) * faktor`) sehingga terasa seperti bergerak di dalam air.
-- **Deteksi dash**: luas kontur dibandingkan dengan median 60 frame terakhir. Jika luasnya tiba-tiba
-  lebih dari **1,65×** rata-rata (karena tangan didorong ke arah kamera), dash aktif selama 0,8 detik
-  dengan cooldown 1,6 detik.
 - **Kalibrasi**: game mengambil median nilai HSV dari kotak di tengah frame selama 2 detik, lalu membuat
   rentang warna `Hue ± 12`. Kalibrasi ditolak bila warna terlalu pucat (Saturation atau Value < 60).
 
@@ -102,7 +100,6 @@ python game_frenzy.py
 | Aksi | Cara |
 |---|---|
 | Menggerakkan ikan | Gerakkan tangan/benda berwarna di depan webcam |
-| Dash / boost | Dorong tangan dengan cepat mendekat ke kamera |
 
 ### Keyboard & mouse
 
@@ -135,15 +132,19 @@ Main Menu ──PLAY──► Kalibrasi (tekan K, tahan tangan di kotak 2 detik)
 - Menyentuh ikan yang **lebih besar** membuat permainan berakhir (**Game Over**).
 - Maksimal **tiga ikan besar** dan **dua Boss** aktif bersamaan dalam satu window; ikan kecil dan sedang tetap muncul seperti biasa.
 - **Boss** selalu mematikan dan tidak dapat dimakan. Animasi makan Boss ditampilkan sebelum Game Over.
-- Semakin tinggi skor, musuh muncul semakin cepat (jeda spawn minimal 0,8 detik).
+- Semakin tinggi skor, musuh muncul semakin cepat. Frekuensi spawn telah dinaikkan **1,5×**, dengan jeda minimal sekitar **0,53 detik**.
 
 ### Pertumbuhan pemain
 
-| Tingkat | Ukuran | Syarat (total ikan dimakan) |
+Pertumbuhan ditentukan oleh **total poin**, bukan jumlah ikan yang dimakan. Indikator ukuran di HUD menggunakan aset `saatkecil.png`, `saatsedang.png`, dan `saatbesar.png` sesuai level aktif.
+
+| Tingkat | Ukuran | Syarat (total poin) |
 |---|---|---|
 | 1 | Kecil | 0 |
-| 2 | Sedang | 8 |
-| 3 | Besar | 20 |
+| 2 | Sedang | 70 |
+| 3 | Besar | 180 |
+
+Pemain selalu lebih besar daripada musuh pada level yang sama: radius pemain Kecil/Sedang/Besar adalah **26/42/64**, sedangkan radius musuh setara adalah **16/30/48**.
 
 ### Musuh
 
@@ -168,10 +169,8 @@ Pengaturan utama ada di [`game/config.py`](game/config.py):
 | `CAM_W`, `CAM_H` | `320, 240` | Resolusi pemrosesan kamera (kecil supaya ringan) |
 | `HSV_BAWAH`, `HSV_ATAS` | `[40,70,70]`–`[85,255,255]` | Rentang warna default (hijau terang) |
 | `MIN_AREA` | `500` | Luas kontur minimum agar dianggap tangan |
-| `DASH_RASIO` | `1.65` | Pengali luas kontur untuk memicu dash |
-| `DASH_DURASI` | `0.8` | Durasi dash (detik) |
-| `LERP_NORMAL` / `DASH_LERP` | `0.09` / `0.30` | Kehalusan gerak normal / saat dash |
-| `GROWTH`, `MUSUH` | – | Tabel pertumbuhan pemain dan data musuh |
+| `LERP_NORMAL` | `0.09` | Kehalusan gerak ikan mengikuti tangan |
+| `GROWTH`, `MUSUH` | – | Ambang poin pertumbuhan pemain dan data musuh |
 
 ---
 
@@ -193,12 +192,13 @@ Project-PCV/
 │   ├── Mainmenu.png      # panel menu utama
 │   ├── Gameover_ui.png   # panel game over (dipakai game)
 │   ├── Score.png         # panel skor di HUD
+│   ├── saatkecil.png, saatsedang.png, saatbesar.png  # indikator ukuran pemain
 │   ├── bg_underwater.png # latar bawah laut
-│   ├── player_*.png      # sprite pemain (small/medium/large)
+│   ├── ikanp_frame_01.png ... ikanp_frame_08.png  # animasi pemain berenang/makan
 │   ├── enemy_*.png       # sprite musuh dan variasinya
 │   ├── Boss/swim/, Boss/eat/  # animasi Boss, masing-masing 6 frame
 │   ├── bubble_*.png      # partikel gelembung
-│   ├── dash_effect.png, eat_effect.png
+│   ├── eat_effect.png  # efek visual saat ikan dimakan
 │   └── coral.png, rock.png, seaweed.png  # dekorasi dasar laut
 └── README.md
 ```
@@ -211,8 +211,8 @@ game tetap berjalan tanpa aset tersebut.
 - `game/config.py`: ukuran layar, parameter kamera, aturan pertumbuhan, skor,
   dan pemetaan file aset.
 - `game/assets.py`: memuat aset gambar dan menyediakan gambar fallback.
-- `game/camera.py`: membaca webcam di thread terpisah, melacak warna, mendeteksi
-  dash, dan mengambil sampel untuk kalibrasi.
+- `game/camera.py`: membaca webcam di thread terpisah, melacak warna, dan mengambil
+  sampel untuk kalibrasi.
 - `game/entities.py`: perilaku ikan pemain dan ikan musuh, termasuk animasi Boss.
 - `game/particles.py`: mengelola gelembung dan efek visual.
 - `game/game.py`: mengatur ronde permainan, antarmuka, event, serta game loop.
@@ -227,7 +227,6 @@ game tetap berjalan tanpa aset tersebut.
 | Muncul tulisan **"TANGAN TIDAK TERDETEKSI!"** | Pakai benda berwarna lebih mencolok, perbaiki pencahayaan, lalu kalibrasi ulang. |
 | Kalibrasi gagal: **warna terlalu pucat** | Warna penanda kurang jenuh. Gunakan warna cerah seperti hijau, biru, atau merah terang. |
 | Ikan bergerak sendiri / melompat-lompat | Ada benda lain dengan warna serupa di latar. Jauhkan benda tersebut atau ganti warna penanda. |
-| Dash terlalu sering / sulit aktif | Ubah nilai `DASH_RASIO` (lebih besar = lebih sulit aktif). |
 
 ---
 

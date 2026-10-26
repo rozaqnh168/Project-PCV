@@ -10,16 +10,12 @@ HSV_BAWAH = np.array([40, 70, 70])
 HSV_ATAS  = np.array([85, 255, 255])
 MIN_AREA  = 500
 
-DASH_RASIO      = 1.65
-DASH_COOlDOWN   = 1.6
-DASH_DURASI     = 0.8
-DASH_LERP       = 0.30
-LERP_NORMAL     = 0.09
+LERP_NORMAL = 0.09
 
 GROWTH = [
-    {"lvl": 1, "nama": "KECIL",   "radius": 20, "makan_total": 0},
-    {"lvl": 2, "nama": "SEDANG",  "radius": 34, "makan_total": 8},
-    {"lvl": 3, "nama": "BESAR",   "radius": 52, "makan_total": 20},
+    {"lvl": 1, "nama": "KECIL",  "radius": 26, "poin_total": 0},
+    {"lvl": 2, "nama": "SEDANG", "radius": 42, "poin_total": 70},
+    {"lvl": 3, "nama": "BESAR",  "radius": 64, "poin_total": 180},
 ]
 
 MUSUH = {
@@ -34,9 +30,6 @@ KUNING    = (255, 220, 60)
 
 
 ASSET_PATHS = {
-    "player_small":  "assets/player_small.png",
-    "player_medium": "assets/player_medium.png",
-    "player_large":  "assets/player_large.png",
     "enemy_small":   "assets/enemy_small.png",
     "enemy_medium":  "assets/enemy_medium.png",
     "enemy_large":   "assets/enemy_large.png",
@@ -45,7 +38,13 @@ ASSET_PATHS = {
     "main_menu":     "assets/Mainmenu.png",
     "game_over":     "assets/Gameover_ui.png",
     "score":         "assets/Score.png",
+    "status_kecil":  "assets/saatkecil.png",
+    "status_sedang": "assets/saatsedang.png",
+    "status_besar":  "assets/saatbesar.png",
 }
+for nomor in range(1, 9):
+    nama = f"ikanp_frame_{nomor:02d}"
+    ASSET_PATHS[nama] = f"assets/{nama}.png"
 for aksi in ("swim", "eat"):
     for nomor in range(1, 7):
         nama = f"enemy_boss_{aksi}_{nomor:02d}"
@@ -56,7 +55,6 @@ ASSET_PATHS.update({
     "enemy_medium_3":  "assets/enemy_medium_3.png",
     "enemy_large_2":   "assets/enemy_large_2.png",
     "enemy_large_3":   "assets/enemy_large_3.png",
-    "dash_effect":     "assets/dash_effect.png",
     "eat_effect":      "assets/eat_effect.png",
     "bubble_cluster":  "assets/bubble_cluster.png",
     "coral":           "assets/coral.png",
@@ -64,7 +62,11 @@ ASSET_PATHS.update({
     "seaweed":         "assets/seaweed.png",
 })
 
-SPRITE_PEMAIN = {1: "player_small", 2: "player_medium", 3: "player_large"}
+ANIMASI_PEMAIN = [f"ikanp_frame_{nomor:02d}" for nomor in range(1, 9)]
+STATUS_UKURAN = {1: "status_kecil", 2: "status_sedang", 3: "status_besar"}
+FPS_PEMAIN = 8
+FPS_MAKAN_PEMAIN = 20
+DURASI_MAKAN_PEMAIN = 0.4
 
 SPRITE_MUSUH = {
     1: ["enemy_small", "enemy_small_2"],

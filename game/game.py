@@ -51,7 +51,6 @@ class Game:
         self.cursor_tangan = pygame.cursors.Cursor(pygame.SYSTEM_CURSOR_HAND)
 
     def ubah_ukuran(self, ukuran):
-        """Ubah jendela dan pertahankan posisi relatif seluruh objek permainan."""
         lebar_lama, tinggi_lama = config.WIDTH, config.HEIGHT
         config.WIDTH, config.HEIGHT = ukuran
         self.screen = pygame.display.set_mode(ukuran)
@@ -75,7 +74,6 @@ class Game:
             img = self.assets.sumber["bg_underwater"]
             bg = pygame.transform.smoothscale(img, (config.WIDTH, config.HEIGHT))
         else:
-            # fallback: gradasi biru + siluet rumput laut
             bg = pygame.Surface((config.WIDTH, config.HEIGHT))
             for y in range(config.HEIGHT):
                 t = y / config.HEIGHT
@@ -87,7 +85,6 @@ class Game:
                 for j in range(1, 6):
                     titik.append((i + random.randint(-14, 14), config.HEIGHT - tinggi * j // 5))
                 pygame.draw.lines(bg, (20, 90, 70), False, titik, 6)
-        # ---- tempel dekorasi aset di dasar laut (bila tersedia) ----
         for nama, jumlah in (("seaweed", 7), ("coral", 4), ("rock", 4)):
             if not self.assets.punya_eksternal(nama):
                 continue
@@ -141,7 +138,7 @@ class Game:
 
     def update_spawner(self, dt):
         self.spawn_timer += dt
-        interval = max(0.8, 2.0 - self.skor * 0.004)
+        interval = max(0.8, 2.0 - self.skor * 0.004) / 1.5
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
             self.musuh.append(IkanMusuh(self.assets, self._pilih_level_musuh()))
@@ -150,10 +147,11 @@ class Game:
         p = self.pemain
         for m in self.musuh[:]:
             jarak = ((m.x - p.x) ** 2 + (m.y - p.y) ** 2) ** 0.5
-            if jarak < m.radius + p.radius - 6:   # -6 = toleransi biar adil
-                if m.level <= p.level:            # musuh lebih kecil -> MAKAN
+            if jarak < m.radius + p.radius - 6:
+                if m.level <= p.level:
                     self.skor += m.poin
-                    tumbuh = p.makan_ikan()
+                    p.mulai_makan()
+                    tumbuh = p.perbarui_pertumbuhan(self.skor)
                     self.partikel.ledakan(m.x, m.y, n=20 + m.level * 6)
                     self.ambil_pos = (m.x, m.y, f"+{m.poin}")
                     self.pesan_makan = 40
@@ -231,7 +229,6 @@ class Game:
     def _tombol_game_over(self):
         if not self.game_over_rect:
             return {}
-        # area diukur dari piksel tombol pada assets/Gameover_ui.png (761x724)
         return {
             "retry": self._hitbox_panel(
                 self.game_over_rect, (0.197, 0.745, 0.515, 0.874)),
@@ -247,7 +244,6 @@ class Game:
             pad = 10
             glow = pygame.Surface((rect.width + pad * 2, rect.height + pad * 2),
                                   pygame.SRCALPHA)
-            # lapisan glow memudar ke luar
             for i, alfa in enumerate((18, 30, 46)):
                 r = glow.get_rect().inflate(-i * 6, -i * 6)
                 pygame.draw.rect(glow, (*warna, alfa), r, 3,
@@ -263,7 +259,6 @@ class Game:
         font = pygame.font.SysFont("dejavusansbold", tinggi, bold=True)
         isi = font.render(teks, True, (255, 255, 255))
         w, h = isi.get_size()
-        # gradasi vertikal: putih di atas -> cyan muda di bawah
         gradasi = pygame.Surface((w, h), pygame.SRCALPHA)
         for y in range(h):
             t = y / max(1, h - 1)
@@ -289,7 +284,6 @@ class Game:
         self.screen.blit(hasil, hasil.get_rect(center=tengah))
 
     def _gambar_nilai_panel(self, panel, area, nilai, ukuran_font, bersih=False):
-        """Tulis nilai aktual pada panel; aset bersih tidak perlu kotak penutup."""
         rect = self._hitbox_panel(panel, area)
         if bersih:
             self._teks_angka(f"{nilai:06d}", rect.center, ukuran_font)
@@ -424,18 +418,11 @@ class Game:
                                  (config.WIDTH // 2 - 200, 505, lebar, 18), border_radius=9)
         self.teks_tengah("ESC: kembali ke menu", 555, self.font_kecil)
 
-    def update(self, dt, frame, pos, area):
-        self.kamera.update_dash()
-        if pos is not None:
-            self.kamera.cek_dash(area)
-        dash_aktif = self.kamera.update_dash()
-
+    def update(self, dt, frame, pos):
         if self.state == "SIAP":
             self.pemain.update(pos, config.LERP_NORMAL, dt)
         elif self.state == "MAIN":
-            lerp = config.DASH_LERP if dash_aktif else config.LERP_NORMAL
-            self.pemain.dash = dash_aktif
-            self.pemain.update(pos, lerp, dt)
+            self.pemain.update(pos, config.LERP_NORMAL, dt)
             self.update_spawner(dt)
             for musuh in self.musuh:
                 musuh.update(dt)
@@ -452,7 +439,7 @@ class Game:
                 if random.random() < 0.5:
                     self.partikel.jejak(
                         self.pemain.x - self.pemain.radius * self.pemain.arah,
-                        self.pemain.y, dash_aktif)
+                        self.pemain.y)
         elif self.state == "DIMAKAN":
             for musuh in self.musuh:
                 if musuh.sedang_makan:
@@ -464,7 +451,6 @@ class Game:
             self.update_kalibrasi(frame, dt)
 
         self.partikel.update()
-        return dash_aktif
 
     def _proses_event(self, event):
         if event.type == pygame.QUIT:
@@ -548,10 +534,9 @@ class Game:
             dt = min(time.time() - t_sebelum, 0.05)
             t_sebelum = time.time()
 
-            frame, mask, pos, area, _ = self.kamera.baca()
-            dash_aktif = self.update(dt, frame, pos, area)
+            frame, mask, pos = self.kamera.baca()
+            self.update(dt, frame, pos)
 
-            # ---- RENDER ----
             self.hover_aktif = False
             self.screen.blit(self.bg, (0, 0))
             self.partikel.gambar(self.screen)
@@ -562,51 +547,30 @@ class Game:
                     sp = pygame.transform.flip(sp, True, False)
                 self.screen.blit(sp, sp.get_rect(center=(int(m.x), int(m.y))))
 
-            # pemain
+
             if self.state in ("SIAP", "MAIN"):
                 sp = self.pemain.sprite
                 if self.pemain.arah == -1:
                     sp = pygame.transform.flip(sp, True, False)
-                # efek dash: pakai sprite dash_effect bila ada, kalau tidak glow
-                if self.pemain.dash:
-                    px, py = int(self.pemain.x), int(self.pemain.y)
-                    if self.assets.punya_eksternal("dash_effect"):
-                        sp_efek = self.assets.ambil("dash_effect", self.pemain.radius)
-                        sp_efek = sp_efek.copy()
-                        sp_efek.set_alpha(150)
-                        # efek berada di belakang ikan (sisi lawan arah renang)
-                        pos = sp_efek.get_rect(center=(px - self.pemain.arah * self.pemain.radius,
-                                                        py))
-                        if self.pemain.arah == -1:
-                            sp_efek = pygame.transform.flip(sp_efek, True, False)
-                        self.screen.blit(sp_efek, pos)
-                    else:
-                        glow = pygame.Surface((sp.get_width() + 30, sp.get_height() + 30),
-                                              pygame.SRCALPHA)
-                        pygame.draw.circle(glow, (120, 220, 255),
-                                           glow.get_rect().center, self.pemain.radius + 12, 4)
-                        self.screen.blit(glow, glow.get_rect(center=(px, py)))
                 self.screen.blit(sp, sp.get_rect(center=(int(self.pemain.x),
                                                          int(self.pemain.y))))
 
-            # ---- HUD ----
+
             if self.state == "MAIN":
-                lvl_nama = config.GROWTH[self.pemain.level - 1]["nama"]
-                progres = config.GROWTH[min(self.pemain.level, 2)]["makan_total"]
-                butuh = max(0, progres - self.pemain.makan) if self.pemain.level < 3 else 0
-                hud = f"UKURAN: {lvl_nama}"
-                if butuh:
-                    hud += f" (makan {butuh} lagi)"
-                self.screen.blit(self.font_sedang.render(hud, True, (20, 30, 40)), (14, 12))
-                self.screen.blit(self.font_sedang.render(hud, True, (255, 255, 255)), (12, 10))
-                score_rect = self._gambar_panel_ui("score", (270, 110), (config.WIDTH - 150, 68))
+                nama_status = config.STATUS_UKURAN[self.pemain.level]
+                if self.assets.punya_eksternal(nama_status):
+                    asli = self.assets.sumber[nama_status]
+                    lebar_status = min(390, config.WIDTH // 2 - 20)
+                    tinggi_status = int(asli.get_height() * lebar_status / asli.get_width())
+                    status = pygame.transform.smoothscale(
+                        asli, (lebar_status, tinggi_status))
+                    self.screen.blit(status, (12, -30))
+                score_rect = self._gambar_panel_ui("score", (270, 110), (config.WIDTH - 100, 45))
                 if score_rect:
                     self._gambar_nilai_panel(
                         score_rect, (0.38, 0.42, 0.85, 0.65), self.skor, 38)
                 else:
                     self.teks_tengah(f"SKOR {self.skor}", 35, self.font_sedang)
-                if dash_aktif:
-                    self.teks_tengah("DASH!", 130, self.font_besar, (120, 220, 255))
                 if pos is None:
                     self.teks_tengah("TANGAN TIDAK TERDETEKSI!", config.HEIGHT - 60,
                                      self.font_sedang, (255, 90, 90))
@@ -648,7 +612,7 @@ class Game:
                 self.game_over_rect = self._gambar_panel_ui(
                     "game_over", (620, 600), (config.WIDTH // 2, config.HEIGHT // 2))
                 if self.game_over_rect:
-                    # slot angka cekung pada aset: SCORE & BEST
+
                     ukuran_angka = int(self.game_over_rect.height * 0.064)
                     self._gambar_nilai_panel(
                         self.game_over_rect, (0.360, 0.457, 0.670, 0.526),

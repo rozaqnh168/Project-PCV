@@ -10,29 +10,34 @@ class IkanPemain:
     def __init__(self, assets: AssetManager):
         self.assets = assets
         self.x, self.y = config.WIDTH // 2, config.HEIGHT // 2
-        self.makan = 0
         self.level = 1
         self.radius = config.GROWTH[0]["radius"]
         self.mati = False
-        self.dash = False
-        self.arah = 1                 
+        self.arah = 1
+        self.waktu_animasi = 0.0
+        self.waktu_makan = 0.0
 
     @property
     def sprite(self):
-        return self.assets.ambil(config.SPRITE_PEMAIN[self.level], self.radius)
+        fps = config.FPS_MAKAN_PEMAIN if self.waktu_makan > 0 else config.FPS_PEMAIN
+        indeks = int(self.waktu_animasi * fps) % len(config.ANIMASI_PEMAIN)
+        return self.assets.ambil(config.ANIMASI_PEMAIN[indeks], self.radius)
 
-    def makan_ikan(self):
-        self.makan += 1
-        for g in config.GROWTH:
-            if self.makan >= g["makan_total"]:
-                level_baru = g["lvl"]
+    def mulai_makan(self):
+        self.waktu_makan = config.DURASI_MAKAN_PEMAIN
+
+    def perbarui_pertumbuhan(self, skor):
+        level_baru = max(g["lvl"] for g in config.GROWTH
+                         if skor >= g["poin_total"])
         if level_baru > self.level:
             self.level = level_baru
             self.radius = config.GROWTH[self.level - 1]["radius"]
-            return True  # bertumbuh!
+            return True
         return False
 
     def update(self, target, lerp_faktor, dt):
+        self.waktu_animasi += dt
+        self.waktu_makan = max(0.0, self.waktu_makan - dt)
         if target is None:
             return
         tx = (target[0] / config.CAM_W) * config.WIDTH

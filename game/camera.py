@@ -16,13 +16,7 @@ class PelacakKamera:
         self.lock = threading.Lock()
         self.frame = None            
         self.mask = None             
-        self.pos = None              
-        self.area = 0                
-
-        self.riwayat_area = []       
-        self.dash_aktif = False      
-        self.dash_mulai = 0.0
-        self.dash_terakhir = 0.0     
+        self.pos = None
 
         self.aktif = True
         if self.buka:
@@ -44,13 +38,12 @@ class PelacakKamera:
             mask = cv2.erode(mask, None, iterations=2)  
             mask = cv2.dilate(mask, None, iterations=2)
 
-            pos, area = None, 0
+            pos = None
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
                                            cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 terbesar = max(contours, key=cv2.contourArea)
-                area = cv2.contourArea(terbesar)
-                if area >= config.MIN_AREA:
+                if cv2.contourArea(terbesar) >= config.MIN_AREA:
                     M = cv2.moments(terbesar)
                     if M["m00"] > 0:
                         pos = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
@@ -60,42 +53,12 @@ class PelacakKamera:
                 self.frame = frame
                 self.mask = mask
                 self.pos = pos
-                self.area = area
 
-            time.sleep(0.004)  
+            time.sleep(0.004)
 
     def baca(self):
         with self.lock:
-            return self.frame, self.mask, self.pos, self.area, self.dash_aktif
-
-    def cek_dash(self, area):
-        now = time.time()
-        if self.dash_aktif or now - self.dash_terakhir < config.DASH_COOlDOWN:
-            self._simpan_baseline(area)
-            return False
-        self.riwayat_area.append(area)
-        if len(self.riwayat_area) > 60:
-            self.riwayat_area.pop(0)
-        if len(self.riwayat_area) >= 12:
-            baseline = np.median(self.riwayat_area)
-            if baseline > config.MIN_AREA and area > baseline * config.DASH_RASIO:
-                self.dash_aktif = True
-                self.dash_mulai = now
-                self.dash_terakhir = now
-                self.riwayat_area.clear()   # reset baseline pasca-dash
-                return True
-        return False
-
-    def _simpan_baseline(self, area):
-        self.riwayat_area.append(area)
-        if len(self.riwayat_area) > 60:
-            self.riwayat_area.pop(0)
-
-    def update_dash(self):
-        if self.dash_aktif and time.time() - self.dash_mulai >= config.DASH_DURASI:
-            self.dash_aktif = False
-            self.riwayat_area.clear()
-        return self.dash_aktif
+            return self.frame, self.mask, self.pos
 
     def sampel_kalibrasi(self, frame, kumpulan):
         if frame is None:
