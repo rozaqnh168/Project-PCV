@@ -54,7 +54,8 @@ Petakan ke layar game + LERP → gerak ikan yang halus seperti di air
   selama 2 detik. Program mengambil median HSV sampel dan membuat rentang `Hue ± 12`, dengan
   batas Saturation dan Value minimal 60. Kalibrasi ditolak bila penanda terlalu pucat.
 - Kalibrasi dilakukan saat memulai permainan dari menu. Tombol **RETRY** setelah Game Over
-  langsung memulai ronde baru dan memakai rentang warna hasil kalibrasi sebelumnya.
+  memulai hitung mundur persiapan 3 detik, lalu memulai ronde baru dengan rentang warna hasil
+  kalibrasi sebelumnya.
 
 ---
 
@@ -112,8 +113,8 @@ python game_frenzy.py
 | Klik **OPTIONS** / `O` | Buka menu ukuran jendela |
 | `K` | Mulai kalibrasi warna (di layar kalibrasi) |
 | `M` | Tampilkan/sembunyikan preview webcam |
-| `R` | Saat bermain: kembali ke menu utama; saat Game Over: langsung main lagi tanpa kalibrasi |
-| Klik **RETRY** | Langsung main lagi tanpa kalibrasi |
+| `R` | Saat bermain: kembali ke menu utama; saat Game Over: mulai ulang setelah hitung mundur 3 detik tanpa kalibrasi |
+| Klik **RETRY** | Mulai ulang setelah hitung mundur 3 detik tanpa kalibrasi |
 | Klik **MENU** | Kembali ke menu utama |
 | `Esc` | Kembali ke menu dari Options/Kalibrasi; keluar dari game di layar lain |
 | Klik **QUIT** / `Q` | Keluar dari game |
@@ -122,7 +123,7 @@ python game_frenzy.py
 
 ```
 Main Menu ──PLAY──► Kalibrasi (tekan K, tahan tangan di kotak 2 detik) ──► Bermain ──► Game Over
-Game Over ──RETRY (langsung, tanpa kalibrasi)────────────────────────────────► Bermain
+Game Over ──RETRY──► Persiapan 3 detik (tanpa kalibrasi) ──► Bermain
 Game Over ──MENU─────────────────────────────────────────────────────────────► Main Menu
 ```
 

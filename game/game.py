@@ -1,3 +1,4 @@
+import math
 import random
 import time
 import cv2
@@ -354,7 +355,8 @@ class Game:
 
     def ulang_permainan(self):
         self.reset()
-        self.state = "MAIN"
+        self.waktu_persiapan = 3.0
+        self.state = "HITUNG_MUNDUR"
 
     def update_kalibrasi(self, frame, dt):
         if self.kalib_gagal or not self.kalib_aktif:
@@ -425,6 +427,11 @@ class Game:
     def update(self, dt, frame, pos):
         if self.state == "SIAP":
             self.pemain.update(pos, config.LERP_NORMAL, dt)
+        elif self.state == "HITUNG_MUNDUR":
+            self.pemain.update(pos, config.LERP_NORMAL, dt)
+            self.waktu_persiapan -= dt
+            if self.waktu_persiapan <= 0:
+                self.state = "MAIN"
         elif self.state == "MAIN":
             self.pemain.update(pos, config.LERP_NORMAL, dt)
             self.update_spawner(dt)
@@ -554,7 +561,7 @@ class Game:
                 self.screen.blit(sp, sp.get_rect(center=(int(m.x), int(m.y))))
 
 
-            if self.state in ("SIAP", "MAIN"):
+            if self.state in ("SIAP", "MAIN", "HITUNG_MUNDUR"):
                 sp = self.pemain.sprite
                 if self.pemain.arah == -1:
                     sp = pygame.transform.flip(sp, True, False)
@@ -610,6 +617,11 @@ class Game:
 
             elif self.state == "OPTIONS":
                 self._gambar_options()
+
+            elif self.state == "HITUNG_MUNDUR":
+                self.teks_tengah(
+                    f"BERSIAP! {max(1, math.ceil(self.waktu_persiapan))}",
+                    config.HEIGHT // 2, self.font_besar, config.KUNING)
 
             elif self.state == "OVER":
                 kabut = pygame.Surface((config.WIDTH, config.HEIGHT), pygame.SRCALPHA)
