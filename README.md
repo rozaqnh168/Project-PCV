@@ -5,6 +5,9 @@ Posisi tangan dideteksi memakai **color masking HSV + contour** dari OpenCV, tan
 
 Project ini dibuat untuk mata kuliah **Pengolahan Citra dan Video (PCV)**.
 
+Kode game dipisahkan ke beberapa modul Python berdasarkan tanggung jawabnya. File
+`game_frenzy.py` tetap menjadi entry point untuk menjalankan permainan.
+
 ---
 
 ## Fitur
@@ -157,7 +160,7 @@ Boss baru muncul setelah pemain mencapai ukuran **Besar**.
 
 ## Konfigurasi
 
-Pengaturan utama ada di bagian atas [`game_frenzy.py`](game_frenzy.py):
+Pengaturan utama ada di [`game/config.py`](game/config.py):
 
 | Konstanta | Default | Keterangan |
 |---|---|---|
@@ -176,7 +179,15 @@ Pengaturan utama ada di bagian atas [`game_frenzy.py`](game_frenzy.py):
 
 ```
 Project-PCV/
-├── game_frenzy.py        # seluruh kode game
+├── game_frenzy.py        # entry point untuk menjalankan game
+├── game/
+│   ├── __init__.py       # package modul game
+│   ├── config.py         # konfigurasi, aturan, dan pemetaan aset
+│   ├── assets.py         # AssetManager dan fallback sprite
+│   ├── camera.py         # PelacakKamera dan kalibrasi warna
+│   ├── entities.py       # IkanPemain dan IkanMusuh
+│   ├── particles.py      # SistemPartikel
+│   └── game.py           # class Game: loop, input, update, dan render
 ├── skor_frenzy.txt       # skor terbaik (dibuat/diperbarui otomatis)
 ├── assets/
 │   ├── Mainmenu.png      # panel menu utama
@@ -194,6 +205,17 @@ Project-PCV/
 
 Aset bertanda variasi (misalnya `enemy_medium_2.png` dan `coral.png`) bersifat opsional. Bila tidak ada,
 game tetap berjalan tanpa aset tersebut.
+
+### Tanggung jawab modul
+
+- `game/config.py`: ukuran layar, parameter kamera, aturan pertumbuhan, skor,
+  dan pemetaan file aset.
+- `game/assets.py`: memuat aset gambar dan menyediakan gambar fallback.
+- `game/camera.py`: membaca webcam di thread terpisah, melacak warna, mendeteksi
+  dash, dan mengambil sampel untuk kalibrasi.
+- `game/entities.py`: perilaku ikan pemain dan ikan musuh, termasuk animasi Boss.
+- `game/particles.py`: mengelola gelembung dan efek visual.
+- `game/game.py`: mengatur ronde permainan, antarmuka, event, serta game loop.
 
 ---
 
